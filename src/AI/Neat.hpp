@@ -2,6 +2,7 @@
 #include <vector>
 #include <atomic>
 #include <functional>
+#include <cstdint>
 
 static std::atomic<std::uint32_t> Innov_N = 0;
 
