@@ -18,6 +18,9 @@ static void glfw_error_callback(int error, const char* description) {
 	fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
+void start_dockspace() noexcept;
+void end_dockspace() noexcept;
+
 int main(int, char**) {
 	// Setup window
 	glfwSetErrorCallback(glfw_error_callback);
@@ -31,14 +34,13 @@ int main(int, char**) {
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO(); (void)io;
+	ImGuiIO& io = ImGui::GetIO();
+	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	
 	imnodes::Initialize();
 
-	Network net;
-	Genome gen;
-	Network_Window net_win;
-	Genome_Window gen_win;
+	Neat neat;
+	Neat_Window neat_win;
 
 	ImGui::StyleColorsDark();
 
@@ -46,8 +48,10 @@ int main(int, char**) {
 	ImGui_ImplGlfw_InitForOpenGL(window, true);
 	ImGui_ImplOpenGL2_Init();
 
+	size_t i = 0;
+
 	// Our state
-	bool show_demo_window = true;
+	bool show_demo_window = false;
 	ImVec4 clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
 
 	// Main loop
@@ -58,20 +62,52 @@ int main(int, char**) {
 		ImGui_ImplOpenGL2_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
 		ImGui::NewFrame();
-
+		
+		ImGui::DockSpaceOverViewport(
+			ImGui::GetMainViewport(),
+			ImGuiDockNodeFlags_PassthruCentralNode
+		);
 		if (show_demo_window) ImGui::ShowDemoWindow(&show_demo_window);
-		ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
 
-		net = gen.phenotype();
+		neat_win.render(neat);
+		if (neat_win.run_generation || neat_win.auto_run) {
+			for (size_t i = neat.population.size(); i < neat.population_size; ++i) {
+				neat.population.push_back(neat_win.initial_genome);
+			}
 
-		ImGui::Begin("Test");
-		gen_win.embed_render(gen);
-		ImGui::Separator();
-		net_win.embed_render(net);
-		ImGui::End();
+			neat.evaluate([](Network& n) {
+				float inputs[] = {
+					1, 0, 0,
+					1, 1, 0,
+					1, 0, 1,
+					1, 1, 1
+				};
+				float target_outputs[] = {
+					0, 1, 1, 0
+				};
+				float predicted_outputs[4];
 
-		update_genome(gen, net_win);
+				n.compute(inputs + 0, 3, predicted_outputs + 0, 1);
+				n.compute(inputs + 3, 3, predicted_outputs + 1, 1);
+				n.compute(inputs + 6, 3, predicted_outputs + 2, 1);
+				n.compute(inputs + 9, 3, predicted_outputs + 3, 1);
 
+				float s = 0;
+				for (size_t i = 0; i < 4; ++i) {
+					float dt = (target_outputs[i] - predicted_outputs[i]);
+					s += dt * dt;
+				}
+
+				return 1.f / s;
+			});
+
+			neat.select();
+			neat.populate();
+
+			float m = 0;
+			for (auto& x : neat.results) if (m < x.fitness) m = x.fitness;
+			neat_win.max_fitness.push_back(m);
+		}
 
 		// Rendering
 		ImGui::Render();

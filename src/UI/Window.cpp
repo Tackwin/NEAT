@@ -4,62 +4,34 @@
 #include "imgui/imnodes.h"
 
 void Network_Window::embed_render(Network& network) noexcept {
-	thread_local std::vector<bool> is_input_output;
-
-	is_input_output.clear();
-	is_input_output.resize(network.nodes.size());
 	links_created.clear();
+	links_deleted.clear();
+	links_hovered.clear();
+
 	imnodes::BeginNodeEditor();
 
-	for (auto& x : network.input_nodes) {
-		imnodes::BeginNode(x);
-
-		imnodes::BeginNodeTitleBar();
-		ImGui::Text("%s", "Input");
-		imnodes::EndNodeTitleBar();
-
-		ImGui::Text("%zu", x);
-
-		imnodes::BeginOutputAttribute(network.nodes.size() + x);
-		imnodes::EndOutputAttribute();
-
-		imnodes::EndNode();
-
-		is_input_output[x] = true;
-	}
-
-	for (auto& x : network.output_nodes) {
-		imnodes::BeginNode(x);
-
-		imnodes::BeginNodeTitleBar();
-		ImGui::Text("%s", "Output");
-		imnodes::EndNodeTitleBar();
-
-		ImGui::Text("%zu", x);
-
-		imnodes::BeginInputAttribute(x);
-		imnodes::EndOutputAttribute();
-
-		imnodes::EndNode();
-
-		is_input_output[x] = true;
-	}
-
-	for (size_t i = 0; i < network.nodes.size(); ++i) if (!is_input_output[i]) {
-		auto& x = network.nodes[i];
-
+	for (size_t i = 0; i < network.nodes.size(); ++i) {
 		imnodes::BeginNode(i);
+
 		imnodes::BeginNodeTitleBar();
-		ImGui::Text("%s", "Hidden");
+		ImGui::Text(
+			"%s",
+			network.node_kinds[i] == Network::Node_Kind::Hidden ? "Hidden" :
+			(network.node_kinds[i] == Network::Node_Kind::Output ? "Output" :
+			"Input")
+		);
 		imnodes::EndNodeTitleBar();
 
 		ImGui::Text("%zu", i);
 
-		imnodes::BeginInputAttribute(i);
-		imnodes::EndInputAttribute();
-
-		imnodes::BeginOutputAttribute(network.nodes.size() + i);
-		imnodes::EndOutputAttribute();
+		if (network.node_kinds[i] != Network::Node_Kind::Output) {
+			imnodes::BeginOutputAttribute(i * 2 + 0);
+			imnodes::EndOutputAttribute();
+		}
+		if (network.node_kinds[i] != Network::Node_Kind::Sensor) {
+			imnodes::BeginInputAttribute(i * 2 + 1);
+			imnodes::EndInputAttribute();
+		}
 
 		imnodes::EndNode();
 	}
@@ -67,8 +39,8 @@ void Network_Window::embed_render(Network& network) noexcept {
 	for (size_t i = 0; i < network.connections.size(); ++i) {
 		imnodes::Link(
 			i,
-			network.connections[i].in + network.nodes.size(),
-			network.connections[i].out
+			network.connections[i].in  * 2 + 0,
+			network.connections[i].out * 2 + 1
 		);
 	}
 
@@ -76,39 +48,56 @@ void Network_Window::embed_render(Network& network) noexcept {
 
 	int start_id = 0;
 	int end_id = 0;
+	int hover_id = 0;
 	if (imnodes::IsLinkCreated(&start_id, &end_id)) {
-		links_created.push_back(start_id % network.nodes.size());
-		links_created.push_back(end_id % network.nodes.size());
+		links_created.push_back(start_id / 2);
+		links_created.push_back(end_id / 2);
 	}
 	if (imnodes::IsLinkDestroyed(&start_id)) {
 		links_deleted.push_back(start_id);
+	}
+	if (imnodes::IsLinkHovered(&hover_id)) {
+		links_hovered.push_back(hover_id);
+		ImGui::OpenPopup("Link");
+	}
+	
+	if (ImGui::BeginPopup("Link")) {
+		if (links_hovered.empty()) ImGui::CloseCurrentPopup();
+		new_weight.reset();
+		if (
+			!network.connections.empty() &&
+			ImGui::SliderFloat("Weight", &network.connections[hover_id].w, 0, 1)
+		) {
+			new_weight = network.connections[hover_id].w;
+		}
+
+		ImGui::EndPopup();
 	}
 }
 
 
 void Genome_Window::embed_render(Genome& genome) noexcept {
-	ImGui::Columns(2);
+	ImGui::Columns(3);
 
-	size_t n_inputs = 0;
-	size_t n_outputs = 0;
-
-	for (auto& x : genome.node_genes) {
-		if (x.kind == Genome::Node_Gene::Kind::Sensor) n_inputs++;
-		if (x.kind == Genome::Node_Gene::Kind::Output) n_outputs++;
-	}
+	size_t n_inputs = genome.input_nodes;
+	size_t n_outputs = genome.output_nodes;
+	size_t n_hidden = genome.node_genes.size() - n_inputs - n_outputs;
 
 	ImGui::Text("%zu inputs", n_inputs);
 	ImGui::SameLine();
-	if (ImGui::Button("+##in")) {
-		genome.add_new_input();
-	}
-		
+	if (ImGui::Button("+##in")) genome.add_new_input();
 
 	ImGui::NextColumn();
 
 	ImGui::Text("%zu outputs", n_outputs);
 	ImGui::SameLine();
 	if (ImGui::Button("+##out")) genome.add_new_output();
+
+	ImGui::NextColumn();
+
+	ImGui::Text("%zu hidden", n_hidden);
+	ImGui::SameLine();
+	if (ImGui::Button("+##hid")) genome.add_new_hidden();
 
 	ImGui::Columns(1);
 
@@ -148,41 +137,107 @@ void Genome_Window::embed_render(Genome& genome) noexcept {
 }
 
 void update_genome(Genome& gen, const Network_Window& network_window_input) noexcept {
-	for (size_t i = 0; i < network_window_input.links_created.size(); ++i) {
+	for (size_t i = 0; i < network_window_input.links_created.size(); i += 2) {
 		gen.add_connection(
 			network_window_input.links_created[i], network_window_input.links_created[i + 1], 0
 		);
 	}
 
-	for (size_t i = 0; i < network_window_input.links_deleted.size(); ++i) {
-		gen.del_connection(i);
+	for (auto& x : network_window_input.links_deleted) {
+		gen.del_connection(x);
+	}
+
+	if (network_window_input.new_weight) for (auto& x : network_window_input.links_hovered) {
+		gen.update_weight(x, *network_window_input.new_weight);
 	}
 }
 
-void render(Neat& neat) noexcept {
+void Neat_Window::render(Neat& neat) noexcept {
 	ImGui::Begin("Neat");
 
-	int x = neat.population.size();
-	if (ImGui::SliderInt("Population", &x, 0, 1'000'000)) {
-		if (x > neat.population.size()) x - neat.population.size();
-		else                            neat.population.resize(x);
+
+	if (ImGui::Button("Edit initial network")) {
+		open_edit_initial_network = true;
 	}
 
-	ImGui::Button("Run a generation");
+	ImGui::SameLine();
+
+	if (ImGui::Button("Open Best Network")) {
+		open_best_network = true;
+	}
+	if (open_best_network && ImGui::Begin("Best Network", &open_best_network)) {
+
+		Genome* best_genome = nullptr;
+		float best_fitness = 0;
+		for (size_t i = 0; i < neat.population.size(); ++i) {
+			if (neat.results[i].fitness > best_fitness) {
+				best_fitness = neat.results[i].fitness;
+				best_genome = &neat.population[i];
+			}
+		}
+
+		if (best_genome) {
+			auto net = best_genome->phenotype();
+			best_network_window.embed_render(net);
+		} else {
+			ImGui::Text("There is no best genome.");
+		}
+
+		ImGui::End();
+	}
+
+	if (open_edit_initial_network && ImGui::Begin("Edit Network", &open_edit_initial_network)) {
+		initial_genome_window.embed_render(initial_genome);
+		ImGui::Separator();
+		initial_network = initial_genome.phenotype();
+		initial_network_window.embed_render(initial_network);
+		update_genome(initial_genome, initial_network_window);
+		ImGui::End();
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Reset Initial Network")) {
+		initial_genome = {};
+		initial_network = {};
+	}
+	ImGui::Separator();
+
+	if (ImGui::CollapsingHeader("Parameters")) {
+		const char* eval_items[] = { "XOR" };
+		int x = (int)evaluation;
+		ImGui::ListBox("Eval", &x, eval_items, IM_ARRAYSIZE(eval_items));
+		evaluation = (Evaluation)x;
+		ImGui::SliderFloat("Kill Rate    ", &neat.survival_rate, 0, 1);
+		ImGui::SliderFloat("Mutation Rate", &neat.mutation_rate, 0, 1);
+		x = neat.population_size;
+		ImGui::SliderInt("Population", &x, 0, 10'000);
+		neat.population_size = x;
+	}
+
+
+
+	run_generation = ImGui::Button("Run a generation");
+	if (ImGui::Button(auto_run ? "Stop" : "Run")) auto_run = !auto_run;
+
+
+	size_t offset = 0;
+	size_t size = max_fitness.size();
+	if (max_fitness.size() > max_fitness_n_samples) {
+		offset = max_fitness.size() - max_fitness_n_samples;
+		size = max_fitness_n_samples;
+	}
+
+	ImGui::PlotLines(
+		"Max Fitness",
+		max_fitness.data() + offset,
+		(int)size,
+		0,
+		nullptr,
+		FLT_MAX,
+		FLT_MAX,
+		{200, 200}
+	);
 
 	ImGui::End();
 }
-
-void Neat::fill_with(Genome g) noexcept {
-	n_inputs = 0;
-	n_outputs = 0;
-	for (auto& x : g.node_genes) if (x.kind == x.Sensor) n_inputs++;
-	for (auto& x : g.node_genes) if (x.kind == x.Output) n_outputs++;
-
-	for (auto& x : population) x = g;
-}
-
-// >TODO(Tackwin):
-void add_agents(size_t n) noexcept {}
 
 

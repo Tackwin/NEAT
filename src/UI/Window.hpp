@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+#include <vector>
 #include "AI/Neat.hpp"
 
 struct Network_Window {
@@ -8,6 +10,9 @@ struct Network_Window {
 
 	std::vector<size_t> links_created;
 	std::vector<size_t> links_deleted;
+	std::vector<size_t> links_hovered;
+
+	std::optional<float> new_weight;
 
 	void embed_render(Network& network) noexcept;
 };
@@ -17,8 +22,27 @@ struct Genome_Window {
 };
 
 struct Neat_Window {
+	bool open_edit_initial_network = false;
+	bool open_best_network = false;
 
-	size_t population = 0;
+	size_t population = 1000;
+
+	bool run_generation = false;
+	bool auto_run = false;
+
+	Network_Window initial_network_window;
+	Genome_Window initial_genome_window;
+	Network initial_network;
+	Genome initial_genome;
+
+	Network_Window best_network_window;
+
+	enum Evaluation {
+		XOR
+	} evaluation;
+
+	std::vector<float> max_fitness;
+	size_t max_fitness_n_samples = 100;
 
 	void render(Neat& neat) noexcept;
 };
