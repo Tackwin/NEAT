@@ -234,8 +234,12 @@ void Neat_Window::render(Neat& neat) noexcept {
 		nullptr,
 		FLT_MAX,
 		FLT_MAX,
-		{200, 200}
+		{500, 200}
 	);
+
+	int x = max_fitness_n_samples;
+	ImGui::SliderInt("# Sample", &x, 0, 10000);
+	max_fitness_n_samples = x;
 
 	ImGui::End();
 }

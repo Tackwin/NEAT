@@ -1,4 +1,5 @@
 #include "Neat.hpp"
+#include <algorithm>
 
 double random() noexcept {
 	return (double)rand() / (double)RAND_MAX;
@@ -157,24 +158,22 @@ void Neat::evaluate(std::function<float(Network&)> fitness) noexcept {
 }
 
 void Neat::select() noexcept {
-	float max_fitness = 0;
-	for (auto& x : results) max_fitness += x.fitness;
-	
-	for (size_t i = 0; i < survival_rate * population.size(); ++i) {
-		auto r = (float)(random() * max_fitness);
+	thread_local std::vector<std::pair<size_t, float>> indices;
+	thread_local std::vector<Genome> sorted_population;
 
-		for (size_t j = i; j < population.size(); ++j) {
-			
-			r -= results[j].fitness;
-			if (r > 0) continue;
+	indices.clear();
+	sorted_population.clear();
 
-			std::swap(population[j], population[i]);
-			std::swap(results[j].fitness, results[i].fitness);
-		}
-	}
+	for (size_t i = 0; i < population.size(); ++i) indices.push_back({i, results[i].fitness});
 
-	population.resize((size_t)std::floor(survival_rate * population.size()));
-	results.resize(population.size());
+	std::sort(std::begin(indices), std::end(indices), [] (auto a, auto b) {
+		return a.second > b.second;
+	});
+
+	indices.resize(population_size * survival_rate);
+	for (size_t i = 0; i < indices.size(); ++i)
+		sorted_population.push_back(population[indices[i].first]);
+	population.swap(sorted_population);
 }
 
 void Neat::populate() noexcept {
@@ -185,9 +184,10 @@ void Neat::populate() noexcept {
 		if (random() < mutation_rate && !parent.connect_genes.empty()) {
 			size_t i = rand() % parent.connect_genes.size();
 
-			float w = 0.1f * random() + 0.95f;
+			float f = 0.05f * random() + 0.975f;
+			float b = 0.1f * random();
 
-			parent.update_weight(i, parent.connect_genes[i].w * w);
+			parent.update_weight(i, f * parent.connect_genes[i].w + b);
 		}
 
 		if (random() < mutation_rate / 5 && !parent.connect_genes.empty()) {
