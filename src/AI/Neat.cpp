@@ -1,7 +1,7 @@
 #include "Neat.hpp"
 #include <algorithm>
 
-double random() noexcept {
+double randomd() noexcept {
 	return (double)rand() / (double)RAND_MAX;
 }
 
@@ -181,24 +181,24 @@ void Neat::populate() noexcept {
 	for (size_t i = survived; i < population_size; ++i) {
 		auto parent = population[i - survived];
 
-		if (random() < mutation_rate && !parent.connect_genes.empty()) {
+		if (randomd() < mutation_rate && !parent.connect_genes.empty()) {
 			size_t i = rand() % parent.connect_genes.size();
 
-			float f = 0.05f * random() + 0.975f;
-			float b = 0.1f * random();
+			float f = 0.05f * randomd() + 0.975f;
+			float b = 0.1f * randomd();
 
 			parent.update_weight(i, f * parent.connect_genes[i].w + b);
 		}
 
-		if (random() < mutation_rate / 5 && !parent.connect_genes.empty()) {
+		if (randomd() < mutation_rate / 5 && !parent.connect_genes.empty()) {
 			size_t i = rand() % parent.connect_genes.size();
 			parent.dis_connection(i);
 		}
 
-		if (random() < mutation_rate / 5 && parent.node_genes.size() > 1) {
+		if (randomd() < mutation_rate / 5 && parent.node_genes.size() > 1) {
 			std::uint32_t in = rand() % parent.node_genes.size();
 			std::uint32_t out = rand() % (parent.node_genes.size() - 1);
-			float w = (float)(2 * random() - 1);
+			float w = (float)(2 * randomd() - 1);
 			if (out >= in) out++;
 
 			if (
@@ -207,7 +207,7 @@ void Neat::populate() noexcept {
 			) parent.add_connection(in, out, w);
 		}
 
-		if (10 * random() < mutation_rate && !parent.connect_genes.empty()) {
+		if (10 * randomd() < mutation_rate && !parent.connect_genes.empty()) {
 			// pick a connection
 			size_t c = rand() % parent.connect_genes.size();
 
