@@ -2,6 +2,7 @@
 
 #include <optional>
 #include <vector>
+#include <array>
 #include "AI/Neat.hpp"
 
 struct Network_Window {
@@ -25,8 +26,6 @@ struct Neat_Window {
 	bool open_edit_initial_network = false;
 	bool open_best_network = false;
 
-	size_t population = 1000;
-
 	bool run_generation = false;
 	bool auto_run = false;
 
@@ -39,12 +38,17 @@ struct Neat_Window {
 
 	enum Evaluation {
 		XOR
-	} evaluation;
+	} evaluation = Evaluation::XOR;
 
 	std::vector<float> max_fitness;
+	std::vector<float> max_adjusted_fitness;
+	std::vector<std::array<float, 100>> fitness_histograms;
+	std::vector<std::array<float, 100>> adjusted_fitness_histograms;
 	size_t max_fitness_n_samples = 100;
 
 	void render(Neat& neat) noexcept;
+
+	void get_stats(const std::vector<Neat::Result>& results) noexcept;
 };
 
 void update_genome(Genome& gen, const Network_Window& network_window_input) noexcept;

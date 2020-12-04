@@ -18,17 +18,61 @@ static void glfw_error_callback(int error, const char* description) {
 	fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
-void start_dockspace() noexcept;
-void end_dockspace() noexcept;
+GLFWmonitor* get_current_monitor(GLFWwindow *window) noexcept;
+
+void toggle_fullscreen(GLFWwindow* w) noexcept {
+	thread_local bool fullscreen = false;
+	thread_local int last_x = 0;
+	thread_local int last_y = 0;
+	thread_local int last_w = 0;
+	thread_local int last_h = 0;
+
+	if (!fullscreen) {
+		fullscreen = true;
+		glfwGetWindowPos(w, &last_x, &last_y);
+		glfwGetWindowSize(w, &last_w, &last_h);
+
+		auto m = get_current_monitor(w);
+		auto mode = glfwGetVideoMode(m);
+		glfwSetWindowMonitor(
+			w,
+			m,
+			0,
+			0,
+			mode->width,
+			mode->height,
+			GLFW_DONT_CARE
+		);
+	} else {
+		fullscreen = false;
+		glfwSetWindowMonitor(
+			w,
+			nullptr,
+			last_x,
+			last_y,
+			last_w,
+			last_h,
+			GLFW_DONT_CARE
+		);
+
+	}
+
+}
+
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+	if (key == GLFW_KEY_F11 && action == GLFW_PRESS) toggle_fullscreen(window);
+}
 
 int main(int, char**) {
 	// Setup window
+
 	glfwSetErrorCallback(glfw_error_callback);
 	if (!glfwInit()) return 1;
 
-	GLFWwindow* window = glfwCreateWindow(1280, 720, "NEAT", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow(1600, 900, "NEAT", NULL, NULL);
 	if (window == NULL) return 1;
 
+	glfwSetKeyCallback(window, key_callback);
 	glfwMakeContextCurrent(window);
 	glfwSwapInterval(1); // Enable vsync
 
@@ -71,42 +115,13 @@ int main(int, char**) {
 
 		neat_win.render(neat);
 		if (neat_win.run_generation || neat_win.auto_run) {
-			for (size_t i = neat.population.size(); i < neat.population_size; ++i) {
-				neat.population.push_back(neat_win.initial_genome);
-			}
-
-			neat.evaluate([](Network& n) {
-				float inputs[] = {
-					1, 0, 0,
-					1, 1, 0,
-					1, 0, 1,
-					1, 1, 1
-				};
-				float target_outputs[] = {
-					0, 1, 1, 0
-				};
-				float predicted_outputs[4];
-
-				n.compute(inputs + 0, 3, predicted_outputs + 0, 1);
-				n.compute(inputs + 3, 3, predicted_outputs + 1, 1);
-				n.compute(inputs + 6, 3, predicted_outputs + 2, 1);
-				n.compute(inputs + 9, 3, predicted_outputs + 3, 1);
-
-				float s = 0;
-				for (size_t i = 0; i < 4; ++i) {
-					float dt = (target_outputs[i] - predicted_outputs[i]);
-					s += dt * dt;
-				}
-
-				return 1.f / s;
-			});
-
+			neat.complete_with(neat_win.initial_genome, neat.population_size);
+			neat.evaluate(xor_fitness);
 			neat.select();
 			neat.populate();
-
-			float m = 0;
-			for (auto& x : neat.results) if (m < x.fitness) m = x.fitness;
-			neat_win.max_fitness.push_back(m);
+			neat.speciate();
+			neat.generation_number++;
+			neat_win.get_stats(neat.results);
 		}
 
 		// Rendering
@@ -132,4 +147,39 @@ int main(int, char**) {
 	glfwTerminate();
 
 	return 0;
+}
+
+GLFWmonitor* get_current_monitor(GLFWwindow *window) noexcept {
+	int nmonitors, i;
+	int wx, wy, ww, wh;
+	int mx, my, mw, mh;
+	int overlap, bestoverlap;
+	GLFWmonitor *bestmonitor;
+	GLFWmonitor **monitors;
+	const GLFWvidmode *mode;
+
+	bestoverlap = 0;
+	bestmonitor = NULL;
+
+	glfwGetWindowPos(window, &wx, &wy);
+	glfwGetWindowSize(window, &ww, &wh);
+	monitors = glfwGetMonitors(&nmonitors);
+
+	for (i = 0; i < nmonitors; i++) {
+		mode = glfwGetVideoMode(monitors[i]);
+		glfwGetMonitorPos(monitors[i], &mx, &my);
+		mw = mode->width;
+		mh = mode->height;
+
+		overlap =
+			std::max(0, std::min(wx + ww, mx + mw) - std::max(wx, mx)) *
+			std::max(0, std::min(wy + wh, my + mh) - std::max(wy, my));
+
+		if (bestoverlap < overlap) {
+			bestoverlap = overlap;
+			bestmonitor = monitors[i];
+		}
+	}
+
+	return bestmonitor;
 }

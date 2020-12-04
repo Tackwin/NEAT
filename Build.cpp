@@ -1,5 +1,8 @@
 #include "Ease.hpp"
 
+/*
+clang++ Build.cpp -o Build.exe -std=c++17
+*/
 Build build(Flags flags) noexcept {
 	auto b = Build::get_default(flags);
 
@@ -7,6 +10,7 @@ Build build(Flags flags) noexcept {
 
 	b.add_define("_CRT_SECURE_NO_WARNINGS");
 	b.add_define("IMGUI_DISABLE_INCLUDE_IMCONFIG_H");
+
 
 	b.add_header("src/");
 	b.add_header("src/imgui");

@@ -3,26 +3,59 @@
 #include "imgui.h"
 #include "imgui/imnodes.h"
 
+#include <algorithm>
+
 void Network_Window::embed_render(Network& network) noexcept {
 	links_created.clear();
 	links_deleted.clear();
 	links_hovered.clear();
 
+	size_t n_inputs = 0;
+	size_t n_outputs = 0;
+
+	if (ImGui::Button("Reset")) network = {};
+	ImGui::SameLine();
+	if (ImGui::Button("Fully connect")) {
+		for (size_t i = 0; i < network.nodes.size(); ++i)
+			if (network.node_kinds[i] != Network::Node_Kind::Output)
+			for (size_t j = i; j < network.nodes.size(); ++j)
+				if (network.node_kinds[j] != Network::Node_Kind::Sensor) {
+					Network::Connections c;
+					c.in = i;
+					c.out = j;
+					c.w = 1;
+					bool not_found = true;
+					for (auto& x : network.connections) if (x.in == c.in && x.out == c.out) {
+						not_found = false;
+					}
+
+					if (not_found) {
+						links_created.push_back(c.in);
+						links_created.push_back(c.out);
+					}
+				}
+
+	}
+
 	imnodes::BeginNodeEditor();
 
 	for (size_t i = 0; i < network.nodes.size(); ++i) {
+		if (network.node_kinds[i] == Network::Node_Kind::Sensor) n_inputs++;
+		if (network.node_kinds[i] == Network::Node_Kind::Output) n_outputs++;
+		
 		imnodes::BeginNode(i);
 
 		imnodes::BeginNodeTitleBar();
 		ImGui::Text(
-			"%s",
+			"%s %zu",
 			network.node_kinds[i] == Network::Node_Kind::Hidden ? "Hidden" :
 			(network.node_kinds[i] == Network::Node_Kind::Output ? "Output" :
-			"Input")
+			"Input"),
+			i
 		);
 		imnodes::EndNodeTitleBar();
 
-		ImGui::Text("%zu", i);
+		ImGui::Text("%s", node_activation_func_str(network.nodes[i].f));
 
 		if (network.node_kinds[i] != Network::Node_Kind::Output) {
 			imnodes::BeginOutputAttribute(i * 2 + 0);
@@ -72,6 +105,35 @@ void Network_Window::embed_render(Network& network) noexcept {
 		}
 
 		ImGui::EndPopup();
+	}
+
+
+	if (ImGui::CollapsingHeader("Test")) {
+		thread_local std::vector<float> inputs;
+		thread_local std::vector<float> outputs;
+
+		inputs.resize(n_inputs);
+		outputs.resize(n_outputs);
+
+		ImGui::Columns(2);
+
+		for (auto& x : inputs) {
+			ImGui::PushID(&x);
+			ImGui::SliderFloat("Input", &x, 0, 1);
+			ImGui::PopID();
+		}
+
+		ImGui::NextColumn();
+
+		network.compute(inputs.data(), inputs.size(), outputs.data(), outputs.size());
+
+		for (auto& x : outputs) {
+			ImGui::PushID(&x);
+			ImGui::Text("Output %f", x);
+			ImGui::PopID();
+		}
+
+		ImGui::Columns(1);
 	}
 }
 
@@ -139,7 +201,7 @@ void Genome_Window::embed_render(Genome& genome) noexcept {
 void update_genome(Genome& gen, const Network_Window& network_window_input) noexcept {
 	for (size_t i = 0; i < network_window_input.links_created.size(); i += 2) {
 		gen.add_connection(
-			network_window_input.links_created[i], network_window_input.links_created[i + 1], 0
+			network_window_input.links_created[i], network_window_input.links_created[i + 1], 1
 		);
 	}
 
@@ -155,6 +217,9 @@ void update_genome(Genome& gen, const Network_Window& network_window_input) noex
 void Neat_Window::render(Neat& neat) noexcept {
 	ImGui::Begin("Neat");
 
+	if (ImGui::Button("Reset NEAT")) {
+		neat = {};
+	}
 
 	if (ImGui::Button("Edit initial network")) {
 		open_edit_initial_network = true;
@@ -206,18 +271,32 @@ void Neat_Window::render(Neat& neat) noexcept {
 		int x = (int)evaluation;
 		ImGui::ListBox("Eval", &x, eval_items, IM_ARRAYSIZE(eval_items));
 		evaluation = (Evaluation)x;
-		ImGui::SliderFloat("Kill Rate    ", &neat.survival_rate, 0, 1);
-		ImGui::SliderFloat("Mutation Rate", &neat.mutation_rate, 0, 1);
 		x = neat.population_size;
 		ImGui::SliderInt("Population", &x, 0, 10'000);
 		neat.population_size = x;
+
+		if (ImGui::CollapsingHeader("Rates")) {
+			ImGui::SliderFloat("Kill Rate    ", &neat.survival_rate, 0, 1);
+			ImGui::SliderFloat("Mutation Rate", &neat.mutation_rate, 0, 1);
+			ImGui::SliderFloat("Young advantage", &neat.young_advantage, 0, 1);
+			ImGui::SliderFloat("Specie Crowd Rate", &neat.specie_crowd_rate, 0, 1);
+			ImGui::SliderFloat("Complexity cost", &neat.complexity_cost, 0, 1);
+		}
+
+		if (ImGui::CollapsingHeader("Specie Diff Parameters")) {
+			ImGui::SliderFloat("C1", &neat.c_1, 0, 1);
+			ImGui::SliderFloat("C2", &neat.c_2, 0, 1);
+			ImGui::SliderFloat("C3", &neat.c_3, 0, 1);
+			ImGui::SliderFloat("Dt", &neat.specie_dt, 0, 10);
+		}
 	}
-
-
 
 	run_generation = ImGui::Button("Run a generation");
 	if (ImGui::Button(auto_run ? "Stop" : "Run")) auto_run = !auto_run;
 
+	if (ImGui::CollapsingHeader("Infos")) {
+		ImGui::Text("Generation: % 10lld\n", (long long int)neat.generation_number);
+	}
 
 	size_t offset = 0;
 	size_t size = max_fitness.size();
@@ -226,13 +305,37 @@ void Neat_Window::render(Neat& neat) noexcept {
 		size = max_fitness_n_samples;
 	}
 
+	thread_local bool adjusted = false;
+	ImGui::Checkbox("Adjusted", &adjusted);
+
+	auto to_plot = max_fitness.data();
+	if (adjusted) to_plot = max_adjusted_fitness.data();
 	ImGui::PlotLines(
 		"Max Fitness",
-		max_fitness.data() + offset,
+		to_plot + offset,
 		(int)size,
 		0,
 		nullptr,
+		0,
 		FLT_MAX,
+		{500, 200}
+	);
+	if (fitness_histograms.size() > 0) {
+		to_plot = fitness_histograms.back().data();
+		if (adjusted) to_plot = adjusted_fitness_histograms.back().data();
+
+		ImGui::PlotHistogram("Fitness dist", to_plot, 100, 0, nullptr, 0, FLT_MAX, {500, 200});
+	}
+	ImGui::PlotHistogram(
+		"Species",
+		[](void* data, int idx) {
+			return (float)((Neat::Specie*)data)[idx].size;
+		},
+		neat.species.data(),
+		neat.species.size(),
+		0,
+		nullptr,
+		0,
 		FLT_MAX,
 		{500, 200}
 	);
@@ -244,4 +347,36 @@ void Neat_Window::render(Neat& neat) noexcept {
 	ImGui::End();
 }
 
+void Neat_Window::get_stats(const std::vector<Neat::Result>& results) noexcept {
+	thread_local std::array<float, 100> hist;
+	auto best_adjusted_fitness = 0.f;
 
+	auto sorted = results;
+	std::sort(std::begin(sorted), std::end(sorted), [](auto a, auto b) {
+		return a.fitness > b.fitness;
+	});
+
+	max_fitness.push_back(sorted[0].fitness);
+	/*
+	for (auto& x : hist) x = 0;
+	for (auto& x : results) {
+		best_adjusted_fitness = std::max(x.adjusted_fitness, best_adjusted_fitness);
+		auto t = x.fitness / max_fitness.back();
+		t *= 99;
+
+		hist[(size_t)t]++;
+	}
+
+	max_adjusted_fitness.push_back(best_adjusted_fitness);
+	fitness_histograms.push_back(hist);
+
+	for (auto& x : hist) x = 0;
+	for (auto& x : results) {
+		auto t = x.adjusted_fitness / best_adjusted_fitness;
+		t *= 99;
+
+		hist[(size_t)t]++;
+	}
+	adjusted_fitness_histograms.push_back(hist);
+*/
+}

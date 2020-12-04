@@ -59,12 +59,17 @@ static std::filesystem::path Working_Directory;
 
 struct Flags {
 
+	// I want to make optional bool because user code might want to knwo if a user set someting in
+	// the cmd.
+	// For now i'm keeping it as everything is false by default, since you can only set a flag to
+	// true it should be enough ?
 	bool clean = false;
 	bool release = false;
 	bool scratch = false;
 	bool install = false;
 	bool show_help = false;
 	bool link_only = false;
+	bool no_inline = false;
 	bool generate_debug = false;
 	bool no_install_path = false;
 	bool show_help_install = false;
@@ -74,13 +79,15 @@ struct Flags {
 	size_t j = 0;
 	size_t verbose_level = 0;
 
-	std::optional<std::filesystem::path> state_file;
-	std::optional<std::filesystem::path> output;
+	std::optional<size_t> release_level = std::nullopt;
 
+	inline static std::filesystem::path Default_State_Path = "state.txt";
 	inline static std::filesystem::path Default_Build_Path = "ease_build/";
 	inline static std::filesystem::path Default_Temp_Path = "ease_temp/";
 	inline static std::filesystem::path Default_Compile_Command_Path = "compile_commands.json";
 
+	std::optional<std::filesystem::path> state_file;
+	std::optional<std::filesystem::path> output;
 	std::optional<std::filesystem::path> build_path;
 	std::optional<std::filesystem::path> temp_path;
 	std::optional<std::filesystem::path> compile_command_path;
@@ -98,12 +105,20 @@ struct Flags {
 		return Default_Temp_Path;
 	}
 
+	std::filesystem::path get_state_path() const noexcept {
+		if (state_file) return *state_file;
+		else return get_build_path() / Default_State_Path;
+	}
+
 	static Flags parse(int argc, char** argv) noexcept;
 	static const char* help_message() noexcept;
 	static const char* help_install_message() noexcept;
+
+	size_t hash() const noexcept;
 };
 
 struct State {
+	size_t flags_hash = 0;
 	std::map<std::filesystem::path, std::uint64_t> files;
 
 	static State load_from_file(const std::filesystem::path& p) noexcept;
@@ -176,7 +191,6 @@ struct Build {
 	std::string name;
 
 	Flags flags;
-	std::filesystem::path state_file;
 
 	Cli cli;
 	Arch arch;
@@ -246,7 +260,8 @@ enum class Cli_Opts {
 	Preprocess,
 	Arch,
 	Debug_Symbol_Compile,
-	Debug_Symbol_Link
+	Debug_Symbol_Link,
+	No_Inline
 };
 
 
@@ -320,7 +335,6 @@ std::string ltrim_copy(std::string s) {
 	return s;
 }
 
-std::filesystem::path Default_State_File = "state.txt";
 
 std::uint64_t hash(const std::string& str) noexcept;
 std::string unique_name(const std::filesystem::path& path) noexcept;
@@ -364,9 +378,18 @@ NS::Flags NS::Flags::parse(int argc, char** argv) noexcept {
 		}
 		if (strcmp(it, "--release") == 0) {
 			flags.release = true;
+			if (i + 1 < argc) {
+				if (std::isdigit(argv[i + 1][0])) {
+					i++;
+					flags.release_level = std::stoull(argv[i]);
+				}
+			}
 		}
 		if (strcmp(it, "--scratch") == 0) {
 			flags.scratch = true;
+		}
+		if (strcmp(it, "--no-inline") == 0) {
+			flags.no_inline = true;
 		}
 		if (strcmp(it, "--no-install-path") == 0) {
 			flags.no_install_path = true;
@@ -445,9 +468,11 @@ const char* NS::Flags::help_message() noexcept {
 	"                             Level 2 will show additional informations.\n"
 	"                    Exemple: ./Build.exe --verbose 0 | ./Build.exe --verbose 1\n\n"
 
-	"--release                    Will compile the program using default option for release\n"
+	"--release [level]            Will compile the program using default option for release\n"
 	"                             (for instance, if the cli choosen is gcc, will compile using -O3)\n"
-	"                    Exemple: ./Build.exe --release\n\n"
+	"                             if level is specified it will use the appropriate level of\n"
+	"                             optimisation."
+	"                    Exemple: ./Build.exe --release | ./Build.exe --release 1\n\n"
 
 	"--install                    Will install the program to be referenced by the EASE_PATH\n"
 	"                             Environment variable, for more information you can run me with\n"
@@ -470,6 +495,10 @@ const char* NS::Flags::help_message() noexcept {
 	"                             It is not mutually exclusive with --release"
 	"                    Exemple: ./Build.exe --debug\n\n"
 	
+	"--no-inline                  Will set the compiler flag to not inline any function, if\n"
+	"                             availabe.\n"
+	"                    Exemple: ./Build.exe --no-inline\n\n"
+	
 	"--scratch                    Disable incremental compilation and will clean the state file\n"
 	"                    Exemple: ./Build.exe --scratch\n\n"
 	
@@ -485,7 +514,8 @@ const char* NS::Flags::help_message() noexcept {
 	"--state-file <path>          Will use <path> as the path to save the state file. If <path>\n"
 	"                             represent a file then the state file will take exactly it's name\n"
 	"                             but if it represents a directory the state file will be named\n"
-	"                             state.txt\n"
+	"                             state.txt .  By defualt the state file is located in the\n"
+	"                             build directory and is named state.txt\n"
 	"                    Exemple: ./Build.exe --state-file ./my_dir/other_file.ext |\n"
 	"                    Exemple: ./Build.exe --state-file ./my_dir/ \n\n"
 	
@@ -505,6 +535,52 @@ const char* NS::Flags::help_install_message() noexcept {
 	"Idk man... figure it out :/.\n"
 	;
 }
+
+
+
+
+namespace std {
+	template<>
+	struct hash<std::filesystem::path> {
+		std::size_t operator()(const std::filesystem::path& p) const {
+			return std::filesystem::hash_value(p);
+		}
+	};
+};
+
+
+size_t NS::Flags::hash() const noexcept {
+	auto combine = [](auto seed, auto v) {
+		std::hash<std::remove_cv_t<decltype(v)>> hasher;
+		seed ^= hasher(v) + 0x9e3779b9 + (seed<<6) + (seed>>2);
+		return seed;
+	};
+
+	size_t h = 0;
+	h = combine(h, clean);
+	h = combine(h, release);
+	h = combine(h, scratch);
+	h = combine(h, install);
+	h = combine(h, no_inline);
+	h = combine(h, show_help);
+	h = combine(h, link_only);
+	h = combine(h, generate_debug);
+	h = combine(h, no_install_path);
+	h = combine(h, show_help_install);
+	h = combine(h, no_compile_commands);
+	h = combine(h, run_after_compilation);
+	h = combine(h, j);
+	h = combine(h, verbose_level);
+	h = combine(h, state_file);
+	h = combine(h, output);
+	h = combine(h, build_path);
+	h = combine(h, temp_path);
+	h = combine(h, compile_command_path);
+	h = combine(h, release_level);
+
+	return h;
+}
+
 
 // ===================== FLAGS
 
@@ -640,6 +716,8 @@ NS::State NS::State::load_from_file(const std::filesystem::path& p) noexcept {
 	std::istringstream stream(text);
 	std::string line;
 
+	if (std::getline(stream, line)) std::sscanf(line.c_str(), "%zu", &state.flags_hash);
+
 	while(std::getline(stream, line)) {
 		trim(line);
 		std::filesystem::path f = line;
@@ -663,6 +741,7 @@ NS::State NS::State::get_unchanged(const State& a, const State& b) noexcept {
 
 void NS::State::save_to_file(const std::filesystem::path& p) noexcept {
 	std::string to_dump = "";
+	to_dump += std::to_string(flags_hash) + "\n";
 	for (auto& [a, b] : files) {
 		to_dump += a.generic_string() + "\n";
 		to_dump += std::to_string(b) + "\n";
@@ -670,8 +749,8 @@ void NS::State::save_to_file(const std::filesystem::path& p) noexcept {
 
 	dump_to_file(to_dump, p);
 }
-NS::State construct_new_state(const std::filesystem::path& p) noexcept {
-	NS::State s;
+NS::State set_files_hashes(const std::filesystem::path& p, NS::State& s) noexcept {
+	s.files.clear();
 	for (auto& x : std::filesystem::recursive_directory_iterator(p)) {
 		if (!x.is_regular_file()) continue;
 		if (x.path().extension() != ".pre") continue;
@@ -823,10 +902,15 @@ NS::Commands compile_command_object(const NS::State& state, const NS::Build& b) 
 		command += " " + get_cli_flag(b.cli, Cli_Opts::Compile);
 		command += " " + get_cli_flag(b.cli, Cli_Opts::Std_Version, b.std_ver);
 
-		if (b.flags.release)
-			command += " " + get_cli_flag(b.cli, Cli_Opts::Optimisation);
+		if (b.flags.release){
+			std::string param = "3";
+			if (b.flags.release_level) param = std::to_string(*b.flags.release_level);
+			command += " " + get_cli_flag(b.cli, Cli_Opts::Optimisation, param);
+		}
 		else
 			command += " " + get_cli_flag(b.cli, Cli_Opts::No_Optimisation);
+
+		if (b.flags.no_inline) command += " " + get_cli_flag(b.cli, Cli_Opts::No_Inline);
 
 		command += " " + get_cli_flag(b.cli, Cli_Opts::Object_Output, o.generic_string());
 
@@ -987,12 +1071,14 @@ void handle_build(Build& b) noexcept {
 	NS::State old_state = {};
 	NS::State new_state = {};
 
-	if (!b.flags.state_file) {
-		b.state_file = b.flags.get_build_path() / Default_State_File;
-	}
+	new_state.flags_hash = b.flags.hash();
+	if (!b.flags.scratch && std::filesystem::is_regular_file(b.flags.get_state_path()))
+		old_state = NS::State::load_from_file(b.flags.get_state_path());
 
-	if (!b.flags.scratch && std::filesystem::is_regular_file(b.state_file))
-		old_state = NS::State::load_from_file(b.state_file);
+	if (new_state.flags_hash != old_state.flags_hash) {
+		old_state = {};
+		b.flags.scratch = true;
+	}
 
 	std::string to_dump;
 	switch (b.target) {
@@ -1029,7 +1115,7 @@ void handle_build(Build& b) noexcept {
 		if (!b.flags.link_only) {
 			c = compile_command_incremetal_check(b);
 			execute(b, c);
-			new_state = construct_new_state(b.flags.get_temp_path());
+			set_files_hashes(b.flags.get_temp_path(), new_state);
 			if (!b.flags.scratch) old_state = NS::State::get_unchanged(old_state, new_state);
 
 			for (auto& x : b.pre_compile) execute(b, x);
@@ -1052,10 +1138,11 @@ void handle_build(Build& b) noexcept {
 		execute(b, c);
 		for (auto& x : b.post_link) execute(b, x);
 
-		new_state.save_to_file(b.state_file);
+		new_state.save_to_file(b.flags.get_state_path());
 
 		if (b.target == NS::Build::Target::Exe && b.flags.run_after_compilation) {
-			std::string run = NS::details::get_output_path(b).generic_string();
+			std::string run =
+				NS::details::get_output_path(b).replace_extension("exe").generic_string();
 			system(run.c_str());
 		}
 
@@ -1120,10 +1207,10 @@ std::string NS::details::get_cli_flag(
 	switch (opts) {
 	case NS::Cli_Opts::Preprocess :
 		X("-E", "/P");
-	case NS::Cli_Opts::Optimisation :
-		X("-O3", "/O3");
 	case NS::Cli_Opts::No_Optimisation :
 		X("-O0", "/O0");
+	case NS::Cli_Opts::No_Inline :
+		X("-fno-inline", "/Ob0");
 	case NS::Cli_Opts::Debug_Symbol_Link :
 		X("-g -gcodeview -gno-column-info", "/DEBUG");
 	case NS::Cli_Opts::Debug_Symbol_Compile :
@@ -1137,6 +1224,8 @@ std::string NS::details::get_cli_flag(
 		X(std::string("-shared"), std::string("/DLL"));
 	case NS::Cli_Opts::Link :
 		X(std::string("-l") + param.data(), std::string("???"));
+	case NS::Cli_Opts::Optimisation :
+		X(std::string("-O") + param.data(), std::string("/O") + param.data());
 	case NS::Cli_Opts::Define :
 		X(std::string("-D") + param.data(), std::string("/D") + param.data());
 	case NS::Cli_Opts::Include :

@@ -1,39 +1,83 @@
 #include "Neat.hpp"
 #include <algorithm>
+#include <unordered_map>
+#include <optional>
 
-double randomd() noexcept {
-	return (double)rand() / (double)RAND_MAX;
-}
+double randomd() noexcept { return (double)rand() / (1.0 + RAND_MAX); }
+double randomd2() noexcept { auto d = randomd(); return d * d; }
 
 Genome Genome::mate(const Genome& a, const Genome& b) noexcept {
-	return {};
+	Genome g;
+
+	size_t i = 0;
+	size_t j = 0;
+	for (; i < a.connect_genes.size() && j < b.connect_genes.size(); ) {
+		auto a_id = a.connect_genes[i].innov;
+		auto b_id = b.connect_genes[j].innov;
+
+		if (a_id == b_id) {
+			auto r = randomd() < 0.5;
+			g.connect_genes.push_back(r ? a.connect_genes[i] : b.connect_genes[j]);
+			i++;
+			j++;
+		} else {
+			g.connect_genes.push_back(a.connect_genes[i]);
+			if (a_id < b_id) i++;
+			if (a_id > b_id) j++;
+		}
+	}
+	for (; i < a.connect_genes.size(); ++i) g.connect_genes.push_back(a.connect_genes[i]);
+	for (; j < b.connect_genes.size(); ++j) g.connect_genes.push_back(b.connect_genes[j]);
+
+	std::uint32_t max_nodes = (std::uint32_t)std::max(a.node_genes.size(), b.node_genes.size());
+
+	g.node_genes.resize(max_nodes);
+
+	for (i = 0; i < a.node_genes.size(); ++i) g.node_genes[i] = a.node_genes[i];
+	for (; i < b.node_genes.size(); ++i) g.node_genes[i] = b.node_genes[i];
+
+	return g;
 }
 
 float relu(float x) noexcept {
 	return x > 0 ? x : 0;
 }
 
-float activate(Network::Node::Func f, float x) noexcept {
+float lin(float x) noexcept {
+	return x;
+}
+
+float sig(float x) noexcept {
+	return 1 / (1 + std::expf(-x));
+}
+
+float activate(Node_Activation_Func f, float x) noexcept {
 	switch (f) {
-	case Network::Node::Func::Relu:
+	case Node_Activation_Func::Relu:
 		return relu(x);
+	case Node_Activation_Func::Lin:
+		return lin(x);
+	case Node_Activation_Func::Sig:
+		return sig(x);
 	default:
 		return 0;
 	}
 }
 
 void Network::compute(float* in, size_t in_size, float* out, size_t out_size) noexcept {
-	for (size_t i = 0, j = 0; i < nodes.size() && j < in_size; ++i) {
-		if (node_kinds[i] == Node_Kind::Sensor) {
+	for (size_t i = 0, j = 0; i < nodes.size(); ++i) {
+		nodes[i].y = 0;
+		if (node_kinds[i] == Node_Kind::Sensor && j < in_size) {
 			nodes[i].y = in[j];
 			++j;
 		}
 	}
 
 	for (size_t n = 0; n < 10; ++n) {
-		for (auto& c : connections) nodes[c.out].y += nodes[c.in].y * c.w;
-
-		for (auto& n : nodes) n.y = activate(n.f, n.y);
+		for (auto& c : connections) nodes[c.out].s += nodes[c.in].y * c.w;
+		for (size_t i = 0; i < nodes.size(); ++i) if (node_kinds[i] != Node_Kind::Sensor)
+			nodes[i].y = activate(nodes[i].f, nodes[i].s);
+		for (auto& n : nodes) n.s = 0;
 	}
 
 	for (size_t i = 0, j = 0; i < nodes.size() && j < out_size; ++i) {
@@ -80,6 +124,18 @@ void Genome::add_node(size_t c) noexcept {
 	add_connection(n.node_id, connect_genes[c].out_id, connect_genes[c].w / 2);
 }
 
+void Genome::del_node(size_t c) noexcept {
+	node_genes.erase(std::begin(node_genes) + c);
+	for (size_t i = connect_genes.size() - 1; i + 1 > 0; --i) {
+		if (connect_genes[i].in_id == c || connect_genes[i].out_id == c) {
+			connect_genes.erase(std::begin(connect_genes) + i);
+		} else {
+			if (connect_genes[i].in_id > c) connect_genes[i].in_id--;
+			if (connect_genes[i].out_id > c) connect_genes[i].out_id--;
+		}
+	}
+}
+
 void Genome::update_weight(size_t i, float w) noexcept {
 	for (auto& x : connect_genes) if (x.enabled) if (i-- == 0) x.w = w;
 }
@@ -92,7 +148,7 @@ Network Genome::phenotype() noexcept {
 		Network::Node_Kind k;
 		Network::Node n;
 		n.y = 0;
-		n.f = n.Relu;
+		n.f = x.f;
 
 		if (x.kind == x.Hidden) k = Network::Node_Kind::Hidden;
 		if (x.kind == x.Output) k = Network::Node_Kind::Output;
@@ -131,89 +187,311 @@ void Genome::dis_connection(size_t i) noexcept {
 	connect_genes[i].enabled = false;
 }
 
-void Neat::fill_with(Genome g) noexcept {
-	n_inputs = 0;
-	n_outputs = 0;
-	for (auto& x : g.node_genes) if (x.kind == x.Sensor) n_inputs++;
-	for (auto& x : g.node_genes) if (x.kind == x.Output) n_outputs++;
+float Genome::dist(const Genome& a, const Genome& b, float c1, float c2, float c3) noexcept {
+	size_t n_dis = 0;
+	size_t n_exc = 0;
 
-	for (auto& x : population) x = g;
+	size_t i = 0;
+	size_t j = 0;
+
+	float w = 0;
+	size_t n_w = 0;
+	size_t N = std::max(a.node_genes.size(), b.node_genes.size());
+
+	if (a.connect_genes.empty() && b.connect_genes.empty()) return 0;
+	if (a.connect_genes.empty() || b.connect_genes.empty()) return FLT_MAX;
+
+	for (; i < a.connect_genes.size() && j < b.connect_genes.size(); ) {
+		auto a_id = a.connect_genes[i].innov;
+		auto b_id = b.connect_genes[j].innov;
+
+		if (a_id == b_id) {
+			auto d = a.connect_genes[i].w - b.connect_genes[j].w;
+			w += d > 0 ? d : -d;
+
+			++i;
+			++j;
+			n_w++;
+		}
+		if (a_id > b_id) {
+			n_dis++;
+			j++;
+		}
+		if (b_id > a_id) {
+			n_dis++;
+			i++;
+		}
+
+		if (i >= a.connect_genes.size()) {
+			n_exc = b.connect_genes.size() - j;
+			break;
+		}
+		if (j >= b.connect_genes.size()) {
+			n_exc = a.connect_genes.size() - i;
+			break;
+		}
+	}
+
+	if (n_w > 0) w /= n_w;
+
+	return (c1 * n_exc + c2 * n_dis) / N + w;
 }
 
-// >TODO(Tackwin):
-void Neat::add_agents(size_t n) noexcept {}
+void Neat::complete_with(Genome g, size_t to) noexcept {
+	bool need_to_speciate = to != population.size();
+	for (size_t i = population.size(); i < to; ++i) add_genome(g);
+	if (need_to_speciate) {
+		speciate();
+	}
+}
+
 
 void Neat::evaluate(std::function<float(Network&)> fitness) noexcept {
 	results.clear();
 
-	for (auto& x : population) {
+	auto adjust_fitness_of = [&](float x, size_t i) -> float {
+		auto n_in_specie = species[genome_info[i].specie].size;
+
+		auto f = x;
+		x /= 1 + specie_crowd_rate * n_in_specie;
+		x /= 1 + complexity_cost   * population[i].node_genes.size();
+		x /= 1 + young_advantage   * genome_info[i].age;
+		return x;
+	};
+
+	for (size_t i = 0; i < population.size(); ++i) {
+		auto& x = population[i];
 		auto net = x.phenotype();
 		
 		Result r;
 		r.g = &x;
 		r.fitness = fitness(net);
+		r.adjusted_fitness = adjust_fitness_of(r.fitness, i);
 
 		results.push_back(r);
 	}
 }
 
 void Neat::select() noexcept {
-	thread_local std::vector<std::pair<size_t, float>> indices;
-	thread_local std::vector<Genome> sorted_population;
+	//thread_local std::vector<std::pair<size_t, Result>> indices;
+	thread_local std::vector<Genome>      sorted_population;
+	thread_local std::vector<Genome_Info> sorted_info;
 
-	indices.clear();
+	//indices.clear();
 	sorted_population.clear();
+	sorted_info.clear();
 
-	for (size_t i = 0; i < population.size(); ++i) indices.push_back({i, results[i].fitness});
+	for (auto& x : species) {
+		std::sort(
+			std::begin(x.idx_in_population),
+			std::end(x.idx_in_population),
+			[&](size_t a, size_t b) {
+				return results[a].adjusted_fitness > results[b].adjusted_fitness;
+			}
+		);
 
-	std::sort(std::begin(indices), std::end(indices), [] (auto a, auto b) {
-		return a.second > b.second;
-	});
+		x.idx_in_population.resize(x.idx_in_population.size() * survival_rate);
+		x.size = x.idx_in_population.size();
+	}
 
-	indices.resize(population_size * survival_rate);
-	for (size_t i = 0; i < indices.size(); ++i)
-		sorted_population.push_back(population[indices[i].first]);
+	for (auto& x : species) {
+		size_t beg = sorted_population.size();
+
+		for (auto& i : x.idx_in_population) {
+			sorted_population.push_back(population[i]);
+			sorted_info.push_back(genome_info[i]);
+		}
+
+		x.idx_in_population.clear();
+		for (; beg < x.size; ++beg) x.idx_in_population.push_back(beg);
+	}
+
 	population.swap(sorted_population);
+	genome_info.swap(sorted_info);
+
+}
+
+
+Genome Neat::mutation(const Genome& in) noexcept {
+	Genome mutated = in;
+
+	// update connection weight
+	if (randomd() < mutation_rate && !mutated.connect_genes.empty()) {
+		size_t i = rand() % mutated.connect_genes.size();
+
+		float f = 0.05f * randomd() + 0.975f;
+		float b = 0.1f * randomd();
+
+		mutated.update_weight(i, f * mutated.connect_genes[i].w + b);
+	}
+
+	// disable connection
+	if (5 * randomd() < mutation_rate && !mutated.connect_genes.empty()) {
+		size_t i = rand() % mutated.connect_genes.size();
+		mutated.dis_connection(i);
+	}
+
+	// add connection
+	if (5 * randomd() < mutation_rate && mutated.node_genes.size() > 1) {
+		std::uint32_t in = rand() % mutated.node_genes.size();
+		std::uint32_t out = rand() % (mutated.node_genes.size() - 1);
+		float w = (float)(2 * randomd() - 1);
+		if (out >= in) out++;
+
+		bool found = false;
+		for (auto& x : mutated.connect_genes) if (x.in_id == in && x.out_id == out) {
+
+			found = true;
+			break;
+		}
+		if (!found) if (
+			mutated.node_genes[in].kind != Genome::Node_Gene::Output &&
+			mutated.node_genes[out].kind != Genome::Node_Gene::Sensor
+		) {
+			mutated.add_connection(in, out, w);
+		}
+	}
+
+	// update node function
+	if (5 * randomd() < mutation_rate && mutated.node_genes.size() > 0) {
+		size_t i = rand() % mutated.node_genes.size();
+		Node_Activation_Func f = (Node_Activation_Func)(rand() % Node_Activation_Func::Count);
+		mutated.node_genes[i].f = f;
+	}
+
+	// add node
+	if (15 * randomd() < mutation_rate && !mutated.connect_genes.empty()) {
+		// pick a connection
+		size_t c = rand() % mutated.connect_genes.size();
+
+		mutated.add_node(c);
+	}
+
+	// del node
+	if (10 * randomd() < mutation_rate && !mutated.connect_genes.empty()) {
+		// pick a connection
+		size_t c = rand() % mutated.node_genes.size();
+
+		if (mutated.node_genes[c].kind == Genome::Node_Gene::Kind::Hidden) {
+			mutated.del_node(c);
+		}
+
+	}
+
+
+	return mutated;
 }
 
 void Neat::populate() noexcept {
 	size_t survived = population.size();
-	for (size_t i = survived; i < population_size; ++i) {
-		auto parent = population[i - survived];
 
-		if (randomd() < mutation_rate && !parent.connect_genes.empty()) {
-			size_t i = rand() % parent.connect_genes.size();
+	size_t to_give_birth = population_size - population.size();
 
-			float f = 0.05f * randomd() + 0.975f;
-			float b = 0.1f * randomd();
+	for (size_t s_id = 0; s_id < species.size(); ++s_id) if (species[s_id].size > 1) {
+		auto& s = species[s_id];
 
-			parent.update_weight(i, f * parent.connect_genes[i].w + b);
+		size_t specie_to_give_birth = (size_t)std::ceil(to_give_birth / (float)species.size());
+		specie_to_give_birth = std::min(specie_to_give_birth, to_give_birth);
+		to_give_birth -= specie_to_give_birth;
+
+		for (size_t i = 0; i < specie_to_give_birth; ++i) {
+			// select parent1 and parent2 from same specie.
+			// we are taking a random number squared so the distribution is skewed towards
+			// the fittest.
+			auto p1_id = (size_t)(randomd2() * s.size);
+			auto p2_id = (size_t)(randomd2() * (s.size - 1)); if (p2_id >= p1_id) p2_id++;
+
+			// look for their indices in the population array
+			size_t a_idx = species[s_id].idx_in_population[p1_id];
+			size_t b_idx = species[s_id].idx_in_population[p2_id];
+
+			// a must be the fittest
+			if (results[a_idx].adjusted_fitness < results[b_idx].adjusted_fitness)
+				std::swap(a_idx, b_idx);
+
+			auto offspring = Genome::mate(population[a_idx], population[b_idx]);
+			offspring = mutation(offspring);
+
+			add_genome(offspring);
 		}
-
-		if (randomd() < mutation_rate / 5 && !parent.connect_genes.empty()) {
-			size_t i = rand() % parent.connect_genes.size();
-			parent.dis_connection(i);
-		}
-
-		if (randomd() < mutation_rate / 5 && parent.node_genes.size() > 1) {
-			std::uint32_t in = rand() % parent.node_genes.size();
-			std::uint32_t out = rand() % (parent.node_genes.size() - 1);
-			float w = (float)(2 * randomd() - 1);
-			if (out >= in) out++;
-
-			if (
-				parent.node_genes[in].kind != Genome::Node_Gene::Output &&
-				parent.node_genes[out].kind != Genome::Node_Gene::Sensor
-			) parent.add_connection(in, out, w);
-		}
-
-		if (10 * randomd() < mutation_rate && !parent.connect_genes.empty()) {
-			// pick a connection
-			size_t c = rand() % parent.connect_genes.size();
-
-			parent.add_node(c);
-		}
-
-		population.push_back(parent);
 	}
+
+	for (size_t i = 0; i < population.size(); ++i) genome_info[i].age++;
+}
+
+void Neat::speciate() noexcept {
+	auto find_specie = [&](size_t i) -> std::optional<size_t> {
+		auto& g = population[i];
+
+		for (size_t j = 0; j < species.size(); ++j) {
+			auto d = Genome::dist(g, species[j].repr, c_1, c_2, c_3);
+			if (d < specie_dt) return j;
+		}
+
+		return std::nullopt;
+	};
+
+	for (auto& x : species) x.size = 0;
+
+	for (size_t i = 0; i < population.size(); ++i) {
+		auto s = find_specie(i);
+
+		if (!s) {
+			Specie new_specie;
+			new_specie.size = 1;
+			new_specie.repr = population[i];
+			new_specie.num = Specie::Specie_N++;
+
+			s = species.size();
+			species.push_back(new_specie);
+		}
+
+		species[*s].size++;
+		genome_info[i].specie = *s;
+	}
+
+	for (size_t i = 0; i < species.size(); ++i) if (species[i].size == 0) {
+		species.erase(std::begin(species) + i);
+		for (auto& x : genome_info) if (x.specie >= i) x.specie--;
+
+		--i;
+	}
+
+	for (auto& x : species) x.idx_in_population.clear();
+	for (size_t i = 0; i < population.size(); ++i)
+		species[genome_info[i].specie].idx_in_population.push_back(i);
+}
+
+void Neat::add_genome(Genome g) noexcept {
+	population.emplace_back(std::move(g));
+	Genome_Info i;
+	i.age = 0;
+	i.specie = 0;
+	genome_info.push_back(i);
+}
+
+float xor_fitness(Network& net) noexcept {
+	float inputs[] = {
+		1, 0, 0,
+		1, 1, 0,
+		1, 0, 1,
+		1, 1, 1
+	};
+	float target_outputs[] = {
+		0, 1, 1, 0
+	};
+	float predicted_outputs[4];
+
+	net.compute(inputs + 0, 3, predicted_outputs + 0, 1);
+	net.compute(inputs + 3, 3, predicted_outputs + 1, 1);
+	net.compute(inputs + 6, 3, predicted_outputs + 2, 1);
+	net.compute(inputs + 9, 3, predicted_outputs + 3, 1);
+
+	float s = 0;
+	for (size_t i = 0; i < 4; ++i) {
+		float dt = (target_outputs[i] - predicted_outputs[i]);
+		s += dt * dt;
+	}
+
+	return 1 / (0.001 + s);
 }
