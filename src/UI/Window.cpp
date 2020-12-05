@@ -139,6 +139,13 @@ void Network_Window::embed_render(Network& network) noexcept {
 
 
 void Genome_Window::embed_render(Genome& genome) noexcept {
+	if (ImGui::Button("Save")) {
+		auto data = genome.serialize();
+
+		FILE* f = fopen("init_genome", "wb");
+		fwrite(data.data(), 1, data.size(), f);
+		fclose(f);
+	}
 	ImGui::Columns(3);
 
 	size_t n_inputs = genome.input_nodes;
@@ -287,7 +294,15 @@ void Neat_Window::render(Neat& neat) noexcept {
 			ImGui::SliderFloat("C1", &neat.c_1, 0, 1);
 			ImGui::SliderFloat("C2", &neat.c_2, 0, 1);
 			ImGui::SliderFloat("C3", &neat.c_3, 0, 1);
-			ImGui::SliderFloat("Dt", &neat.specie_dt, 0, 10);
+			if (neat.specifie_number_of_species) {
+				x = neat.preferred_number_of_species;
+				ImGui::SliderInt("#Specie", &x, 0, neat.population_size);
+				neat.preferred_number_of_species = x;
+			} else {
+				ImGui::SliderFloat("Dt", &neat.specie_dt, 0, 10);
+			}
+			ImGui::SameLine();
+			ImGui::Checkbox("Hard", &neat.specifie_number_of_species);
 		}
 	}
 
@@ -347,36 +362,32 @@ void Neat_Window::render(Neat& neat) noexcept {
 	ImGui::End();
 }
 
+
 void Neat_Window::get_stats(const std::vector<Neat::Result>& results) noexcept {
 	thread_local std::array<float, 100> hist;
 	auto best_adjusted_fitness = 0.f;
+	auto best_fitness = 0.f;
 
-	auto sorted = results;
-	std::sort(std::begin(sorted), std::end(sorted), [](auto a, auto b) {
-		return a.fitness > b.fitness;
-	});
-
-	max_fitness.push_back(sorted[0].fitness);
-	/*
-	for (auto& x : hist) x = 0;
 	for (auto& x : results) {
-		best_adjusted_fitness = std::max(x.adjusted_fitness, best_adjusted_fitness);
-		auto t = x.fitness / max_fitness.back();
-		t *= 99;
-
-		hist[(size_t)t]++;
+		best_adjusted_fitness = std::max(best_adjusted_fitness, x.adjusted_fitness);
+		best_fitness = std::max(best_fitness, x.fitness);
 	}
 
-	max_adjusted_fitness.push_back(best_adjusted_fitness);
+	memset(hist.data(), 0, hist.size());
+	for (auto& x : results) {
+		auto t = (size_t)(99 * x.fitness / best_fitness);
+
+		hist[t]++;
+	}
+	max_fitness.push_back((float)best_fitness);
 	fitness_histograms.push_back(hist);
 
-	for (auto& x : hist) x = 0;
+	memset(hist.data(), 0, hist.size());
 	for (auto& x : results) {
-		auto t = x.adjusted_fitness / best_adjusted_fitness;
-		t *= 99;
+		auto t = (size_t)(99 * x.adjusted_fitness / best_adjusted_fitness);
 
-		hist[(size_t)t]++;
+		hist[t]++;
 	}
+	max_adjusted_fitness.push_back((float)best_adjusted_fitness);
 	adjusted_fitness_histograms.push_back(hist);
-*/
 }

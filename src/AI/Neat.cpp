@@ -21,8 +21,11 @@ Genome Genome::mate(const Genome& a, const Genome& b) noexcept {
 			i++;
 			j++;
 		} else {
-			g.connect_genes.push_back(a.connect_genes[i]);
-			if (a_id < b_id) i++;
+			// disjoint genes are inheret by the fitter parent.
+			if (a_id < b_id) {
+				g.connect_genes.push_back(a.connect_genes[i]);
+				i++;
+			}
 			if (a_id > b_id) j++;
 		}
 	}
@@ -303,7 +306,7 @@ void Neat::select() noexcept {
 		}
 
 		x.idx_in_population.clear();
-		for (; beg < x.size; ++beg) x.idx_in_population.push_back(beg);
+		for (size_t i = 0; i < x.size; ++i, ++beg) x.idx_in_population.push_back(beg);
 	}
 
 	population.swap(sorted_population);
@@ -420,34 +423,55 @@ void Neat::populate() noexcept {
 }
 
 void Neat::speciate() noexcept {
-	auto find_specie = [&](size_t i) -> std::optional<size_t> {
-		auto& g = population[i];
-
-		for (size_t j = 0; j < species.size(); ++j) {
-			auto d = Genome::dist(g, species[j].repr, c_1, c_2, c_3);
-			if (d < specie_dt) return j;
-		}
-
-		return std::nullopt;
-	};
-
 	for (auto& x : species) x.size = 0;
 
-	for (size_t i = 0; i < population.size(); ++i) {
-		auto s = find_specie(i);
+	std::vector<int> found_specie;
+	found_specie.resize(population.size(), -1);
 
-		if (!s) {
+	// First we allocate species based on past representant
+	for (size_t s_idx = 0; s_idx < species.size(); ++s_idx) {
+		auto& specie = species[s_idx];
+
+		for (size_t i = 0; i < population.size(); ++i) if (found_specie[i] < 0) {
+			auto d = Genome::dist(specie.repr, population[i], c_1, c_2, c_3);
+			if (d > specie_dt) continue;
+
+			found_specie[i] = s_idx;
+			species[s_idx].size++;
+			genome_info[i].specie = s_idx;
+		}
+	}
+
+	size_t new_specie_idx = species.size();
+
+	// After that if there is still people who have not been assigned a specie.
+	for (size_t i = 0; i < population.size(); ++i) if (found_specie[i] < 0) {
+		size_t s_idx = 0;
+
+		size_t j = new_specie_idx;
+		for (; j < species.size(); ++j) {
+			auto& specie = species[j];
+
+			auto d = Genome::dist(specie.repr, population[i], c_1, c_2, c_3);
+			if (d > specie_dt) continue;
+
+			s_idx = j;
+			break;
+		}
+
+		if (j == species.size()) {
 			Specie new_specie;
-			new_specie.size = 1;
+			new_specie.size = 0;
 			new_specie.repr = population[i];
 			new_specie.num = Specie::Specie_N++;
 
-			s = species.size();
+			s_idx = species.size();
 			species.push_back(new_specie);
 		}
 
-		species[*s].size++;
-		genome_info[i].specie = *s;
+		found_specie[i] = s_idx;
+		species[s_idx].size++;
+		genome_info[i].specie = s_idx;
 	}
 
 	for (size_t i = 0; i < species.size(); ++i) if (species[i].size == 0) {
@@ -460,6 +484,13 @@ void Neat::speciate() noexcept {
 	for (auto& x : species) x.idx_in_population.clear();
 	for (size_t i = 0; i < population.size(); ++i)
 		species[genome_info[i].specie].idx_in_population.push_back(i);
+
+	if (specifie_number_of_species) {
+		// Here we can adjust specie_dt if the user has set a preferred number of species.
+
+		if (preferred_number_of_species > species.size())      specie_dt /= 1.5;
+		else if (preferred_number_of_species < species.size()) specie_dt *= 1.5;
+	}
 }
 
 void Neat::add_genome(Genome g) noexcept {
@@ -494,4 +525,63 @@ float xor_fitness(Network& net) noexcept {
 	}
 
 	return 1 / (0.001 + s);
+}
+
+
+std::vector<std::uint8_t> Genome::serialize() const noexcept {
+	std::vector<std::uint8_t> data;
+
+	std::uint32_t input  = input_nodes;
+	std::uint32_t output = output_nodes;
+
+	data.resize(16);
+	memcpy(data.data() + 0, &input, 4);
+	memcpy(data.data() + 4, &output, 4);
+
+	std::uint32_t n_nodes = node_genes.size();
+	std::uint32_t n_connect = connect_genes.size();
+
+	memcpy(data.data() + 8, &n_nodes, 4);
+	memcpy(data.data() + 12, &n_connect, 4);
+
+	for (auto& x : node_genes) {
+		size_t i = data.size();
+		data.resize(i + sizeof(Genome::Node_Gene));
+		memcpy(data.data() + i, &x, sizeof(Genome::Node_Gene));
+	}
+
+	for (auto& x : connect_genes) {
+		size_t i = data.size();
+		data.resize(i + sizeof(Genome::Connect_Gene));
+		memcpy(data.data() + i, &x, sizeof(Genome::Connect_Gene));
+	}
+
+	return data;
+}
+
+Genome Genome::deserialize(const std::vector<std::uint8_t>& data) noexcept {
+	auto* d = data.data();
+	Genome g;
+
+	g.input_nodes  = *reinterpret_cast<const size_t*>(d + 0);
+	g.output_nodes = *reinterpret_cast<const size_t*>(d + 4);
+
+	g.node_genes.resize(*reinterpret_cast<const std::uint32_t*>(d + 8));
+	g.connect_genes.resize(*reinterpret_cast<const std::uint32_t*>(d + 12));
+
+
+	for (size_t i = 0; i < g.node_genes.size(); ++i) {
+		g.node_genes[i] =
+			*reinterpret_cast<const Genome::Node_Gene*>(d + 16 + i * sizeof(Genome::Node_Gene));
+	}
+	
+	for (size_t i = 0; i < g.connect_genes.size(); ++i) {
+		g.connect_genes[i] = *reinterpret_cast<const Genome::Connect_Gene*>(
+			d + 16
+				+ g.node_genes.size() * sizeof(Genome::Node_Gene)
+				+ i * sizeof(Genome::Connect_Gene)
+		);
+	}
+
+	return g;
 }

@@ -7,6 +7,9 @@
 #include "imgui/imgui_impl_glfw.h"
 #include "imgui/imgui_impl_opengl2.h"
 
+#include "Argh.hpp"
+#include "xstd.hpp"
+
 #include <stdio.h>
 
 #ifdef __APPLE__
@@ -63,14 +66,81 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	if (key == GLFW_KEY_F11 && action == GLFW_PRESS) toggle_fullscreen(window);
 }
 
-int main(int, char**) {
-	// Setup window
 
+void gui(argh::parser& flags) noexcept;
+void cli(argh::parser& flags) noexcept;
+
+int main(int, char** argv) {
+	argh::parser flags(argv + 1);
+
+	if (flags["no-ui"]) cli(flags);
+	else                gui(flags);
+
+	return 0;
+}
+
+void cli(argh::parser& flags) noexcept {
+	if (!flags("init-gen")) {
+		printf("You need to provide an input network");
+		return;
+	}
+
+	Neat neat;
+	size_t n_iter = 0;
+	std::string init_genome_path;
+	
+	flags("init-gen") >> init_genome_path;
+	flags("pop") >> neat.population_size;
+	flags("n") >> n_iter;
+
+	FILE* f = fopen(init_genome_path.c_str(), "rb");
+
+	fseek(f, 0, SEEK_END);
+	long fsize = ftell(f);
+	fseek(f, 0, SEEK_SET);  /* same as rewind(f); */
+
+	std::vector<std::uint8_t> data;
+	data.resize(fsize);
+	fread(data.data(), 1, fsize, f);
+	fclose(f);
+
+	Genome init_genome = Genome::deserialize(data);
+
+	auto start = xstd::seconds();
+	neat.complete_with(init_genome, neat.population_size);
+	for (size_t i = 0; i < n_iter; ++i) {
+		printf(
+			"Doing Generation % *d, with % 5d species\n",
+			(int)(std::ceil(std::log10(n_iter)) + 1),
+			(int)(neat.generation_number + 1),
+			(int)(neat.species.size())
+		);
+		neat.evaluate(xor_fitness);
+		neat.select();
+		neat.populate();
+		neat.speciate();
+		neat.generation_number++;
+	}
+	auto end = xstd::seconds();
+
+	auto t = end - start;
+	auto kgs = (neat.population_size * n_iter / t) / 1'000.0;
+
+	printf(
+		"Done %zu generation of %zu genomesin:\n",
+		n_iter,
+		neat.population_size
+	);
+	printf("%10.5f seconds, %10.5f Kgs (Kilo genomes per seconds)\n", t, kgs);
+}
+
+void gui(argh::parser& flags) noexcept {
+	// Setup window
 	glfwSetErrorCallback(glfw_error_callback);
-	if (!glfwInit()) return 1;
+	if (!glfwInit()) return;
 
 	GLFWwindow* window = glfwCreateWindow(1600, 900, "NEAT", NULL, NULL);
-	if (window == NULL) return 1;
+	if (window == NULL) return;
 
 	glfwSetKeyCallback(window, key_callback);
 	glfwMakeContextCurrent(window);
@@ -145,8 +215,6 @@ int main(int, char**) {
 
 	glfwDestroyWindow(window);
 	glfwTerminate();
-
-	return 0;
 }
 
 GLFWmonitor* get_current_monitor(GLFWwindow *window) noexcept {

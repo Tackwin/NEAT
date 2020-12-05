@@ -47,6 +47,7 @@ struct Network {
 	std::vector<Node_Kind> node_kinds;
 
 	void compute(float* in, size_t in_size, float* out, size_t out_size) noexcept;
+
 };
 
 struct Genome {
@@ -91,6 +92,9 @@ struct Genome {
 	void update_weight(size_t i, float w) noexcept;
 
 	Network phenotype() noexcept;
+
+	std::vector<std::uint8_t> serialize() const noexcept;
+	static Genome deserialize(const std::vector<std::uint8_t>& data) noexcept;
 };
 
 struct Neat {
@@ -104,10 +108,13 @@ struct Neat {
 	float c_2 = 1.0f;
 	float c_3 = 0.4f;
 	float specie_dt = 3.f;
+	size_t preferred_number_of_species = 0;
+
+	bool specifie_number_of_species = false;
 
 	size_t generation_number = 0;
 	
-	size_t population_size = 1'000;
+	size_t population_size = 10'000;
 	std::vector<Genome> population;
 
 	struct Genome_Info {
