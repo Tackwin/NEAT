@@ -1974,7 +1974,7 @@ void SetNodeDraggable(int node_id, const bool draggable)
 
 bool IsEditorHovered()
 {
-    return g.canvas_rect_screen_space.Contains(ImGui::GetMousePos()) && ImGui::IsWindowHovered();
+    return g.canvas_rect_screen_space.Contains(ImGui::GetMousePos());
 }
 
 bool IsNodeHovered(int* const node_id)

@@ -4,11 +4,14 @@
 
 #include "imgui/imgui.h"
 #include "imgui/imnodes.h"
+#include "imgui/implot.h"
 #include "imgui/imgui_impl_glfw.h"
 #include "imgui/imgui_impl_opengl2.h"
 
 #include "Argh.hpp"
 #include "xstd.hpp"
+
+#include "Problem/Demo.hpp"
 
 #include <stdio.h>
 
@@ -87,11 +90,29 @@ void cli(argh::parser& flags) noexcept {
 
 	Neat neat;
 	size_t n_iter = 0;
+	int eval = 0;
+	float goal = 0.f;
 	std::string init_genome_path;
 	
 	flags("init-gen") >> init_genome_path;
 	flags("pop") >> neat.population_size;
-	flags("n") >> n_iter;
+	flags("goal", 0) >> goal;
+	flags("n", 0) >> n_iter;
+	flags("eval", 0) >> eval;
+
+	Neat_Window::Evaluation evaluation = (Neat_Window::Evaluation)eval;
+	auto fit = xor_fitness;
+	switch (evaluation) {
+	case Neat_Window::Evaluation::XOR :
+		fit = xor_fitness;
+		break;
+	case Neat_Window::Evaluation::SPV :
+		fit = spv_fitness;
+		break;
+	default:
+		fit = xor_fitness;
+		break;
+	}
 
 	FILE* f = fopen(init_genome_path.c_str(), "rb");
 
@@ -108,27 +129,47 @@ void cli(argh::parser& flags) noexcept {
 
 	auto start = xstd::seconds();
 	neat.complete_with(init_genome, neat.population_size);
-	for (size_t i = 0; i < n_iter; ++i) {
-		printf(
-			"Doing Generation % *d, with % 5d species\n",
-			(int)(std::ceil(std::log10(n_iter)) + 1),
-			(int)(neat.generation_number + 1),
-			(int)(neat.species.size())
-		);
-		neat.evaluate(xor_fitness);
+	for (size_t i = 0; n_iter == 0 || i < n_iter; ++i) {
+		if (n_iter <= 10 || (i % (n_iter / 10)) == 0) {
+			printf(
+				"Doing Generation % *d, with % 5d species\n",
+				(int)(std::ceil(std::log10(n_iter + 1)) + 1),
+				(int)(neat.generation_number + 1),
+				(int)(neat.species.size())
+			);
+		}
+
+		neat.evaluate(fit, nullptr);
 		neat.select();
 		neat.populate();
 		neat.speciate();
 		neat.generation_number++;
+
+		auto m = std::max_element(
+			std::begin(neat.results),
+			std::end(neat.results),
+			[](auto a, auto b) { return a.fitness < b.fitness; }
+		);
+		if (goal > 0 && goal < m->fitness) {
+			printf("After %zu generations, reached %lf\n", neat.generation_number, m->fitness);
+			printf("Saved to best_genome\n");
+
+			data = m->g->serialize();
+			FILE* f = fopen("best_genome", "wb");
+			fwrite(data.data(), 1, data.size(), f);
+			fclose(f);
+
+			break;
+		}
 	}
 	auto end = xstd::seconds();
 
 	auto t = end - start;
-	auto kgs = (neat.population_size * n_iter / t) / 1'000.0;
+	auto kgs = (neat.population_size * neat.generation_number / t) / 1'000.0;
 
 	printf(
 		"Done %zu generation of %zu genomesin:\n",
-		n_iter,
+		neat.generation_number,
 		neat.population_size
 	);
 	printf("%10.5f seconds, %10.5f Kgs (Kilo genomes per seconds)\n", t, kgs);
@@ -148,6 +189,7 @@ void gui(argh::parser& flags) noexcept {
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
+	ImPlot::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	
@@ -184,14 +226,40 @@ void gui(argh::parser& flags) noexcept {
 		if (show_demo_window) ImGui::ShowDemoWindow(&show_demo_window);
 
 		neat_win.render(neat);
+
+		auto f = xor_fitness;
+		switch (neat_win.evaluation) {
+		case Neat_Window::Evaluation::XOR :
+			f = xor_fitness;
+			break;
+		case Neat_Window::Evaluation::SPV :
+			f = spv_fitness;
+			break;
+		default:
+			f = xor_fitness;
+			break;
+		}
+
+		switch (neat_win.evaluation) {
+		case Neat_Window::Evaluation::SPV :
+			neat_win.render_phenotype = spv_render;
+			break;
+		default:
+			neat_win.render_phenotype = nullptr;
+			break;
+		}
+
 		if (neat_win.run_generation || neat_win.auto_run) {
 			neat.complete_with(neat_win.initial_genome, neat.population_size);
-			neat.evaluate(xor_fitness);
+
+			neat.evaluate(f, nullptr);
+			neat.speciate();
+			neat_win.get_stats(neat, neat.results);
 			neat.select();
 			neat.populate();
-			neat.speciate();
+
+
 			neat.generation_number++;
-			neat_win.get_stats(neat.results);
 		}
 
 		// Rendering
@@ -211,6 +279,7 @@ void gui(argh::parser& flags) noexcept {
 	// Cleanup
 	ImGui_ImplOpenGL2_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
+	ImPlot::DestroyContext();
 	ImGui::DestroyContext();
 
 	glfwDestroyWindow(window);
