@@ -4,9 +4,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <optional>
-
-double randomd() noexcept { return (double)rand() / (1.0 + RAND_MAX); }
-double randomd2() noexcept { auto d = randomd(); return d * d; }
+#include "xstd.hpp"
 
 Genome Genome::mate(const Genome& a, const Genome& b) noexcept {
 	Genome g;
@@ -62,10 +60,10 @@ Genome Genome::mate(const Genome& a, const Genome& b) noexcept {
 	return g;
 }
 
-static float per(float x) noexcept { return x > 0.5 ? 1 : 0; }
+static float sig(float x)  noexcept { return -1 + 2 / (1 + std::expf(-4.8f * x)); }
+static float per(float x)  noexcept { return x > 0.5 ? 1 : 0; }
 static float relu(float x) noexcept { return x > 0 ? x : 0; }
 static float lin(float x)  noexcept { return x; }
-static float sig(float x)  noexcept { return 1 / (1 + std::expf(-4.8f * x)); }
 
 float activate(Node_Activation_Func f, float x) noexcept {
 	switch (f) {
@@ -99,7 +97,7 @@ void Network::compute(float* in, size_t in_size, float* out, size_t out_size) no
 		}
 	}
 
-	for (size_t n = 0; n < 2; ++n) {
+	for (size_t n = 0; n < 1; ++n) {
 		for (auto& c : connections) nodes[c.out].s += nodes[c.in].y * c.w;
 		for (size_t i = 0; i < nodes.size(); ++i) if (node_kinds[i] != Node_Kind::Sensor)
 			nodes[i].y = activate(nodes[i].f, nodes[i].s);
@@ -320,22 +318,6 @@ void Neat::select() noexcept {
 	size_t population_wide_kill = total_kill * population_competition_rate;
 	size_t specie_wide_kill = total_kill - population_wide_kill;
 
-	// adjust fitness
-	auto adjust_fitness_of = [&](float x, size_t i) -> float {
-		auto n_in_specie = species[genome_info[i].specie].size;
-		n_in_specie = std::max(n_in_specie, min_specie_size_advantage);
-
-		size_t complexity = population[i].node_genes.size();
-
-		auto f = x;
-		x /= 1 + complexity_cost * complexity;
-		x /= 1 + specie_crowd_rate * n_in_specie;
-		x /= 1 + young_advantage   * genome_info[i].age;
-		return x;
-	};
-	for (size_t i = 0; i < population.size(); ++i)
-		results[i].adjusted_fitness = adjust_fitness_of(results[i].fitness, i);
-
 	// species kill
 	for (auto& specie : species) {
 
@@ -471,16 +453,13 @@ Genome Neat::mutation(const Genome& in) noexcept {
 		}
 	}
 
-	// disable connection
-	if (randomd() < p.disable_connection_rate * mutation_rate && !mutated.connect_genes.empty()) {
-		size_t i = rand() % mutated.connect_genes.size();
-		mutated.dis_connection(i);
-	}
+	for (auto& x : mutated.connect_genes)
+		if (randomd() < p.toggle_connection_rate * mutation_rate) x.enabled = !x.enabled;
 
 	// add connection
 	if (randomd() < p.add_connection_rate * mutation_rate && mutated.node_genes.size() > 1) {
-		std::uint32_t in = rand() % mutated.node_genes.size();
-		std::uint32_t out = rand() % (mutated.node_genes.size() - 1);
+		std::uint32_t in  = (std::uint32_t)(randomd() * mutated.node_genes.size());
+		std::uint32_t out = (std::uint32_t)(randomd() * mutated.node_genes.size());
 		float w = (float)(2 * randomd2() - 1);
 		
 		// no if (out >= in) out++; here because we might want recurrent connections.
@@ -493,12 +472,8 @@ Genome Neat::mutation(const Genome& in) noexcept {
 		}
 	}
 
-	// update node function
-	if (randomd() < p.update_node_act_rate * mutation_rate && mutated.node_genes.size() > 0) {
-		size_t i = rand() % mutated.node_genes.size();
-		Node_Activation_Func f = (Node_Activation_Func)(rand() % Node_Activation_Func::Count);
-		mutated.node_genes[i].f = f;
-	}
+	for (auto& x: mutated.node_genes) if (randomd() < p.update_node_act_rate * mutation_rate)
+		x.f = (Node_Activation_Func)(rand() % Node_Activation_Func::Count);
 
 	// add node
 	if (randomd() < p.add_node_rate * mutation_rate && !mutated.connect_genes.empty()) {
@@ -508,15 +483,10 @@ Genome Neat::mutation(const Genome& in) noexcept {
 		mutated.add_node(c);
 	}
 
-	// del node
-	if (randomd() < p.del_node_rate * mutation_rate && !mutated.connect_genes.empty()) {
-		// pick a connection
-		size_t c = rand() % mutated.node_genes.size();
-
-		if (mutated.node_genes[c].kind == Genome::Node_Gene::Kind::Hidden) {
-			mutated.del_node(c);
+	for (size_t i = mutated.node_genes.size() - 1; i + 1 > 0; --i) {
+		if (randomd() < p.del_node_rate * mutation_rate) {
+			mutated.del_node(i);
 		}
-
 	}
 
 	return mutated;
@@ -648,6 +618,22 @@ void Neat::speciate() noexcept {
 		if (preferred_number_of_species > species.size())      specie_dt /= 1.5;
 		else if (preferred_number_of_species < species.size()) specie_dt *= 1.5;
 	}
+	
+	// adjust fitness
+	auto adjust_fitness_of = [&](float x, size_t i) -> float {
+		auto n_in_specie = species[genome_info[i].specie].size;
+		n_in_specie = std::log2(n_in_specie + min_specie_size_advantage);
+
+		size_t complexity = population[i].node_genes.size();
+
+		auto f = x;
+		x /= 1 + complexity_cost   * complexity;
+		x /= 1 + specie_crowd_rate * n_in_specie;
+		x /= 1 + young_advantage   * genome_info[i].age;
+		return x;
+	};
+	for (size_t i = 0; i < population.size(); ++i)
+		results[i].adjusted_fitness = adjust_fitness_of(results[i].fitness, i);
 }
 
 void Neat::add_genome(Genome g) noexcept {

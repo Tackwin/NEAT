@@ -109,6 +109,9 @@ void cli(argh::parser& flags) noexcept {
 	case Neat_Window::Evaluation::SPV :
 		fit = spv_fitness;
 		break;
+	case Neat_Window::Evaluation::DPV :
+		fit = dpv_fitness;
+		break;
 	default:
 		fit = xor_fitness;
 		break;
@@ -235,6 +238,9 @@ void gui(argh::parser& flags) noexcept {
 		case Neat_Window::Evaluation::SPV :
 			f = spv_fitness;
 			break;
+		case Neat_Window::Evaluation::DPV :
+			f = dpv_fitness;
+			break;
 		default:
 			f = xor_fitness;
 			break;
@@ -243,6 +249,9 @@ void gui(argh::parser& flags) noexcept {
 		switch (neat_win.evaluation) {
 		case Neat_Window::Evaluation::SPV :
 			neat_win.render_phenotype = spv_render;
+			break;
+		case Neat_Window::Evaluation::DPV :
+			neat_win.render_phenotype = dpv_render;
 			break;
 		default:
 			neat_win.render_phenotype = nullptr;

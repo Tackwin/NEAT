@@ -312,7 +312,7 @@ void Neat_Window::render(Neat& neat) noexcept {
 	ImGui::Separator();
 
 	if (ImGui::CollapsingHeader("Parameters")) {
-		const char* eval_items[] = { "XOR", "Single Pole Velocity" };
+		const char* eval_items[] = { "XOR", "Single Pole Velocity", "Double Pole Velocity" };
 		int x = (int)evaluation;
 		ImGui::ListBox("Eval", &x, eval_items, IM_ARRAYSIZE(eval_items));
 		evaluation = (Evaluation)x;
@@ -332,7 +332,7 @@ void Neat_Window::render(Neat& neat) noexcept {
 			if (ImGui::CollapsingHeader("Mutation")) {
 				ImGui::Indent(indent);
 				X(neat.params.update_connection_rate);
-				X(neat.params.disable_connection_rate);
+				X(neat.params.toggle_connection_rate);
 				X(neat.params.new_connection_weight_rate);
 				X(neat.params.add_connection_rate);
 				X(neat.params.update_node_act_rate);
@@ -350,6 +350,7 @@ void Neat_Window::render(Neat& neat) noexcept {
 			ImGui::SliderFloat("C1", &neat.c_1, 0, 1);
 			ImGui::SliderFloat("C2", &neat.c_2, 0, 1);
 			ImGui::SliderFloat("C3", &neat.c_3, 0, 1);
+			ImGui::SliderSize("Specie size", &neat.min_specie_size_advantage, 0, 100);
 			if (neat.specifie_number_of_species) {
 				ImGui::SliderSize(
 					"#Specie", &neat.preferred_number_of_species, 0, neat.population_size
@@ -419,28 +420,37 @@ void Neat_Window::render(Neat& neat) noexcept {
 		for (auto& x : species_size.back()) max_plot_species = std::max(1.0 * x, max_plot_species);
 	}
 
+	offset = std::max(max_fitness_n_samples, neat.generation_number) - max_fitness_n_samples;
+	size_t n_to_plot = std::min(max_fitness_n_samples, neat.generation_number);
 	ImPlot::SetNextPlotLimits(
-		0.,
-		1. * neat.generation_number,
+		1. * offset,
+		1. * n_to_plot,
 		0.0,
 		max_plot_species,
 		ImGuiCond_Always
 	);
-	/*if (ImPlot::BeginPlot("Species histogram")) {
-		for (size_t i = species_size.size() - 1; i + 1 > 0; --i) {
+/*
+	if (ImPlot::BeginPlot("Species histogram")) {
+		for (size_t i = species_size.size() - 1; i + 1 > 0; --i) if (species_size.size() > offset) {
+
 			ImGui::PushID(i);
 
 			char buffer[100] = {};
 			sprintf(buffer, "Specie %zu", i);
 
-			ImPlot::PlotShaded(buffer, xs.data(), species_size[i].data(), xs.size());
+			ImPlot::PlotShaded(
+				buffer,
+				xs.data() + offset,
+				species_size[i].data() + offset,
+				std::min(n_to_plot, species_size[i].size() - offset)
+			);
 
 			ImGui::PopID();
 		}
 
 		ImPlot::EndPlot();
-	}*/
-
+	}
+*/
 	ImGui::PlotHistogram(
 		"Species",
 		[](void* data, int idx) {
@@ -522,19 +532,15 @@ void Neat_Window::get_stats(const Neat& neat, const std::vector<Neat::Result>& r
 		results_snapshots.push_back(neat.results);
 	}
 
-	size_t number_of_species_existed = 0;
-	if (!species_size.empty()) number_of_species_existed = species_size.size();
-	number_of_species_existed = std::max(number_of_species_existed, neat.species.back().num + 1);
-
-	std::vector<size_t> new_specie;
-	if (!species_size.empty()) new_specie = species_size.back();
-	species_size.resize(number_of_species_existed, new_specie);
-	for (auto& x : species_size) x.push_back(0);
+	species_size.resize(
+		Neat::Specie::Specie_N,
+		std::vector<size_t>(neat.generation_number, 0)
+	);
 
 	size_t acc = 0;
 	for (auto& x : neat.species) {
 		acc += x.size;
-		species_size[x.num].back() = acc;
+		species_size[x.num].push_back(acc);
 	}
 }
 

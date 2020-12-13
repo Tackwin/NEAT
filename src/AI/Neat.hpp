@@ -42,7 +42,7 @@ struct Network {
 	struct Node {
 		float y = 0;
 		float s = 0;
-		Node_Activation_Func f = Node_Activation_Func::Per;
+		Node_Activation_Func f = Node_Activation_Func::Sig;
 	};
 
 	std::vector<Connections> connections;
@@ -60,7 +60,7 @@ struct Network {
 struct Genome {
 	struct Node_Gene {
 		std::uint32_t node_id = 0;
-		Node_Activation_Func f = Node_Activation_Func::Per;
+		Node_Activation_Func f = Node_Activation_Func::Sig;
 		enum Kind {
 			Sensor,
 			Output,
@@ -111,7 +111,7 @@ struct Neat {
 	struct Mutation_Params {
 		float new_connection_weight_rate = 0.1f;
 		float update_connection_rate     = 0.8f;
-		float disable_connection_rate    = 0.1f;
+		float toggle_connection_rate    = 0.1f;
 		float add_connection_rate        = 0.3f;
 		float update_node_act_rate       = 0.1f;
 		float add_node_rate              = 0.01f;
@@ -125,7 +125,7 @@ struct Neat {
 	float complexity_cost = 0.5f;
 	float population_competition_rate = 1.0f;
 
-	size_t min_specie_size_advantage = 10;
+	size_t min_specie_size_advantage = 100;
 
 	float c_1 = 1.0f;
 	float c_2 = 1.0f;
@@ -137,7 +137,7 @@ struct Neat {
 
 	size_t generation_number = 0;
 	
-	size_t population_size = 100;
+	size_t population_size = 10'000;
 	std::vector<Genome> population;
 
 	struct Genome_Info {

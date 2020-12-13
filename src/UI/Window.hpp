@@ -83,7 +83,8 @@ struct Neat_Window {
 
 	enum Evaluation {
 		XOR,
-		SPV //Single pole velocity
+		SPV, // Single pole velocity
+		DPV  // Double pole velocity
 	} evaluation = Evaluation::XOR;
 
 	std::vector<float> max_fitness;
