@@ -83,9 +83,11 @@ struct Neat_Window {
 
 	enum Evaluation {
 		XOR,
-		SPV, // Single pole velocity
-		DPV  // Double pole velocity
-	} evaluation = Evaluation::XOR;
+		SPV,  // Single pole velocity
+		DPV,  // Double pole velocity
+		DP,   // Double pole no velocity
+		HDPV  // Double pole velocity
+	} evaluation = Evaluation::DPV;
 
 	std::vector<float> max_fitness;
 	std::vector<float> max_adjusted_fitness;
@@ -93,7 +95,11 @@ struct Neat_Window {
 	std::vector<std::array<float, 100>> adjusted_fitness_histograms;
 	size_t max_fitness_n_samples = 100;
 
-	std::vector<std::vector<size_t>> species_size;
+	struct Specie_Info {
+		size_t n  = 0;
+		size_t id = 0;
+	};
+	std::vector<std::vector<Specie_Info>> species_infos;
 
 	bool capture_population = true;
 	std::vector<std::vector<Genome>> population_snapshots;

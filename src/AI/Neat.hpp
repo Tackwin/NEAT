@@ -49,12 +49,14 @@ struct Network {
 	std::vector<Node> nodes;
 	std::vector<Node_Kind> node_kinds;
 
+	size_t input_nodes = 0;
+	size_t output_nodes = 0;
+
 	size_t genome_serial_number = 0;
 
 	void clear() noexcept;
 	void compute(float* in, size_t in_size, float* out, size_t out_size) noexcept;
 	void compute_clear(float* in, size_t in_size, float* out, size_t out_size) noexcept;
-
 };
 
 struct Genome {
@@ -137,8 +139,11 @@ struct Neat {
 
 	size_t generation_number = 0;
 	
-	size_t population_size = 10'000;
+	size_t population_size = 1'000;
 	std::vector<Genome> population;
+
+	// >SEE(Tackwin): this doesn't exactly concern Neat where should i put it ??
+	size_t threads_to_use = 4;
 
 	struct Genome_Info {
 		size_t age;

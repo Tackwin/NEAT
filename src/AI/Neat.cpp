@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <optional>
+#include <thread>
 #include "xstd.hpp"
 
 Genome Genome::mate(const Genome& a, const Genome& b) noexcept {
@@ -60,12 +61,7 @@ Genome Genome::mate(const Genome& a, const Genome& b) noexcept {
 	return g;
 }
 
-static float sig(float x)  noexcept { return -1 + 2 / (1 + std::expf(-4.8f * x)); }
-static float per(float x)  noexcept { return x > 0.5 ? 1 : 0; }
-static float relu(float x) noexcept { return x > 0 ? x : 0; }
-static float lin(float x)  noexcept { return x; }
-
-float activate(Node_Activation_Func f, float x) noexcept {
+inline float activate(Node_Activation_Func f, float x) noexcept {
 	switch (f) {
 	case Node_Activation_Func::Relu:
 		return relu(x);
@@ -90,26 +86,16 @@ void Network::compute_clear(float* in, size_t in_size, float* out, size_t out_si
 }
 
 void Network::compute(float* in, size_t in_size, float* out, size_t out_size) noexcept {
-	for (size_t i = 0, j = 0; i < nodes.size() && j < in_size; ++i) {
-		if (node_kinds[i] == Node_Kind::Sensor) {
-			nodes[i].y = in[j];
-			++j;
-		}
-	}
+	for (size_t i = 0; i < input_nodes && i < in_size; ++i) nodes[i].y = in[i];
 
-	for (size_t n = 0; n < 1; ++n) {
+	for (size_t n = 0; n < 10; ++n) {
 		for (auto& c : connections) nodes[c.out].s += nodes[c.in].y * c.w;
-		for (size_t i = 0; i < nodes.size(); ++i) if (node_kinds[i] != Node_Kind::Sensor)
+		for (size_t i = input_nodes; i < nodes.size(); ++i)
 			nodes[i].y = activate(nodes[i].f, nodes[i].s);
 		for (auto& n : nodes) n.s = 0;
 	}
 
-	for (size_t i = 0, j = 0; i < nodes.size() && j < out_size; ++i) {
-		if (node_kinds[i] == Node_Kind::Output) {
-			out[j] = nodes[i].y;
-			++j;
-		}
-	}
+	for (size_t i = 0; i < output_nodes && i < out_size; ++i) out[i] = nodes[i + input_nodes].y;
 }
 
 void Genome::add_new_input() noexcept {
@@ -193,6 +179,18 @@ Network Genome::phenotype() const noexcept {
 		net.connections.push_back(c);
 	}
 
+	std::sort(
+		std::begin(net.connections),
+		std::end(net.connections),
+		[] (auto a, auto b) {
+			if (a.out < b.out) return true;
+			return a.in < b.in;
+		}
+	);
+
+	net.output_nodes = output_nodes;
+	net.input_nodes = input_nodes;
+
 	return net;
 }
 
@@ -207,6 +205,9 @@ void Genome::add_connection(std::uint32_t in, std::uint32_t out, float w) noexce
 }
 
 void Genome::add_connection(const Connect_Gene& c) noexcept {
+	assert(c.out_id >= input_nodes);
+	assert(!(input_nodes <= c.in_id && c.in_id < output_nodes));
+
 	auto it = std::find_if(
 		std::begin(connect_genes),
 		std::end(connect_genes),
@@ -291,16 +292,30 @@ void Neat::evaluate(std::function<float(Network&)> fitness) noexcept {
 void Neat::evaluate(std::function<float(Network&, void*)> statefull_fitness, void* user) noexcept {
 	results.clear();
 
-	for (size_t i = 0; i < population.size(); ++i) {
-		auto& x = population[i];
-		auto net = x.phenotype();
-		
-		Result r;
-		r.g = &x;
-		r.fitness = statefull_fitness(net, user);
+	std::vector<std::thread> threads;
 
-		results.push_back(r);
+	results.clear();
+	results.resize(population.size());
+
+	// >SEE(Tackwin): I KNOW volatile blablabla. But since threads_to_use will be subject to change
+	// while this function run i just want to have *any* fixed value
+	volatile auto local_thread = threads_to_use;
+	for (size_t t = 0; t < local_thread; t++) {
+		threads.push_back(std::thread([&, t] {
+			for (size_t i = t; i < population.size(); i += local_thread) {
+				auto& x = population[i];
+				auto net = x.phenotype();
+				
+				Result r;
+				r.g = &x;
+				r.fitness = statefull_fitness(net, user);
+
+				results[i] = r;
+			}
+		}));
 	}
+
+	for (auto& x : threads) x.join();
 }
 
 void Neat::select() noexcept {
@@ -464,12 +479,8 @@ Genome Neat::mutation(const Genome& in) noexcept {
 		
 		// no if (out >= in) out++; here because we might want recurrent connections.
 
-		if (
-			mutated.node_genes[in].kind != Genome::Node_Gene::Output &&
-			mutated.node_genes[out].kind != Genome::Node_Gene::Sensor
-		) {
+		if (mutated.node_genes[out].kind != Genome::Node_Gene::Sensor)
 			mutated.add_connection(in, out, w);
-		}
 	}
 
 	for (auto& x: mutated.node_genes) if (randomd() < p.update_node_act_rate * mutation_rate)
@@ -483,7 +494,11 @@ Genome Neat::mutation(const Genome& in) noexcept {
 		mutated.add_node(c);
 	}
 
-	for (size_t i = mutated.node_genes.size() - 1; i + 1 > 0; --i) {
+	for (
+		size_t i = mutated.node_genes.size() - 1;
+		i + 1 > mutated.input_nodes + mutated.output_nodes;
+		--i
+	) {
 		if (randomd() < p.del_node_rate * mutation_rate) {
 			mutated.del_node(i);
 		}
@@ -612,6 +627,8 @@ void Neat::speciate() noexcept {
 	for (size_t i = 0; i < population.size(); ++i)
 		species[genome_info[i].specie].idx_in_population.push_back(i);
 
+	for (auto& x : species) x.repr = population[x.idx_in_population.front()];
+
 	if (specifie_number_of_species) {
 		// Here we can adjust specie_dt if the user has set a preferred number of species.
 
@@ -624,7 +641,7 @@ void Neat::speciate() noexcept {
 		auto n_in_specie = species[genome_info[i].specie].size;
 		n_in_specie = std::log2(n_in_specie + min_specie_size_advantage);
 
-		size_t complexity = population[i].node_genes.size();
+		size_t complexity = population[i].node_genes.size() + population[i].connect_genes.size();
 
 		auto f = x;
 		x /= 1 + complexity_cost   * complexity;
