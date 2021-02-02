@@ -3,6 +3,7 @@
 #include <atomic>
 #include <functional>
 #include <cstdint>
+#include <float.h>
 
 static std::atomic<std::uint32_t> Innov_N = 0;
 static std::atomic<size_t> Genome_Serial = 0;

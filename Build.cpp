@@ -27,6 +27,9 @@ Build build(Flags flags) noexcept {
 		b.add_library("shell32");
 		b.add_library("lib/win32/glfw3");
 	} else {
+		// This compile to -lpthread and i think it should work ?
+		// Ugh... It's so annoying to have to specify pthread to use std::thread WHY ????
+		b.add_library("pthread");
 		b.add_library("glfw");
 		b.add_library("GL");
 	}

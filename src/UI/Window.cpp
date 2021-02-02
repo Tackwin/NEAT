@@ -4,6 +4,7 @@
 #include "imgui/imnodes.h"
 
 #include <algorithm>
+#include <stdio.h>
 
 namespace ImGui {
 	bool SliderSize(
@@ -256,11 +257,7 @@ void update_genome(Genome& gen, const Network_Window& network_window_input) noex
 	}
 }
 
-#include "imgui/implot.h"
-
 void Neat_Window::render(Neat& neat) noexcept {
-	ImPlot::ShowDemoWindow();
-
 	ImGui::Begin("Neat");
 
 	if (ImGui::Button("Reset NEAT")) {
@@ -420,30 +417,6 @@ void Neat_Window::render(Neat& neat) noexcept {
 	thread_local std::vector<size_t> xs;
 	xs.clear();
 	for (size_t i = 0; i < neat.generation_number; ++i) xs.push_back(i);
-
-
-/*
-	if (ImPlot::BeginPlot("Species histogram")) {
-		for (size_t i = species_size.size() - 1; i + 1 > 0; --i) if (species_size.size() > offset) {
-
-			ImGui::PushID(i);
-
-			char buffer[100] = {};
-			sprintf(buffer, "Specie %zu", i);
-
-			ImPlot::PlotShaded(
-				buffer,
-				xs.data() + offset,
-				species_size[i].data() + offset,
-				std::min(n_to_plot, species_size[i].size() - offset)
-			);
-
-			ImGui::PopID();
-		}
-
-		ImPlot::EndPlot();
-	}
-*/
 
 	if (!species_infos.empty()) {
 		ImGui::PlotHistogram(

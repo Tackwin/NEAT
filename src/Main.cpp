@@ -1,10 +1,10 @@
+#include <cmath>
 
 #include "AI/Neat.hpp"
 #include "UI/Window.hpp"
 
 #include "imgui/imgui.h"
 #include "imgui/imnodes.h"
-#include "imgui/implot.h"
 #include "imgui/imgui_impl_glfw.h"
 #include "imgui/imgui_impl_opengl2.h"
 
@@ -198,7 +198,6 @@ void gui(argh::parser& flags) noexcept {
 
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
-	ImPlot::CreateContext();
 	ImGuiIO& io = ImGui::GetIO();
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	
@@ -306,7 +305,6 @@ void gui(argh::parser& flags) noexcept {
 	// Cleanup
 	ImGui_ImplOpenGL2_Shutdown();
 	ImGui_ImplGlfw_Shutdown();
-	ImPlot::DestroyContext();
 	ImGui::DestroyContext();
 
 	glfwDestroyWindow(window);

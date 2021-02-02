@@ -9,8 +9,6 @@
 #include "xstd.hpp"
 
 #include <algorithm>
-#define _USE_MATH_DEFINES
-#include <math.h>
 
 float xor_fitness(Network& net, void*) noexcept {
 	float inputs[] = {
@@ -66,7 +64,7 @@ auto sp_compute = [](Single_Pole_State state, Network& net) -> float {
 
 	inputs[0] = (inputs[0] + 2.4f) / 4.8f;
 	inputs[1] = sig(inputs[1]);
-	inputs[2] = (std::atan2(std::sinf(inputs[2]), std::cosf(inputs[2])) + M_PI) / (2 * M_PI);
+	inputs[2] = (atan2(sinf(inputs[2]), cosf(inputs[2])) + M_PI) / (2 * M_PI);
 	inputs[3] = sig(inputs[3]);
 
 	float outputs[1];
@@ -91,8 +89,8 @@ auto sp_timestep = [](Single_Pole_State in, double f) -> Single_Pole_State {
 
 	// Extract state into named variables.
 	// Precompute some reused values.
-	double sin_theta = std::sin(in.pole_θ);
-	double cos_theta = std::cos(in.pole_θ);
+	double sin_theta = sin(in.pole_θ);
+	double cos_theta = cos(in.pole_θ);
 	double cos_theta_sqr = cos_theta * cos_theta;
 	double thetav_sqr = in.pole_v * in.pole_v;
 
@@ -161,7 +159,7 @@ void spv_render(Network& net, void* user) noexcept {
 		time += ImGui::GetIO().DeltaTime / 10;
 	}
 
-	time = std::fmodf(time, 1.f);
+	time = fmodf(time, 1.f);
 	time = std::max(time, 0.f);
 
 	state = results[time * (results.size() - 1)];
@@ -184,8 +182,8 @@ void spv_render(Network& net, void* user) noexcept {
 
 	auto pole_start = cart_pos;
 	auto pole_end = pole_start + ImVec2{
-		std::cosf(state.pole_θ - M_PI_2) * 0.2f * scale,
-		std::sinf(state.pole_θ - M_PI_2) * 0.2f * scale
+		cosf(state.pole_θ - M_PI_2) * 0.2f * scale,
+		sinf(state.pole_θ - M_PI_2) * 0.2f * scale
 	};
 
 	// draw left end
@@ -258,10 +256,10 @@ float spv_fitness(Network& net, void*) noexcept {
 		float denom = 0;
 		for (size_t i = 0, j = 0; i < results.size(); ++i) {
 			if (is_upright(results[i]) && j++ > t - N_T / 10) {
-				denom += std::fabsf((float)results[i].cart_x);
-				denom += std::fabsf((float)results[i].cart_v);
-				denom += std::fabsf((float)results[i].pole_θ);
-				denom += std::fabsf((float)results[i].pole_v);
+				denom += fabsf((float)results[i].cart_x);
+				denom += fabsf((float)results[i].cart_v);
+				denom += fabsf((float)results[i].pole_θ);
+				denom += fabsf((float)results[i].pole_v);
 			}
 		}
 
@@ -299,9 +297,9 @@ auto dpv_compute = [](Double_Pole_State state, Network& net) -> float {
 
 	inputs[0] = inputs[0] / 2.4f;
 	inputs[1] = sig(inputs[1]);
-	inputs[2] = (std::atan2(std::sinf(inputs[2]), std::cosf(inputs[2]))) / (M_PI);
+	inputs[2] = (atan2(sinf(inputs[2]), cosf(inputs[2]))) / (M_PI);
 	inputs[3] = sig(inputs[3]);
-	inputs[4] = (std::atan2(std::sinf(inputs[4]), std::cosf(inputs[4]))) / (M_PI);
+	inputs[4] = (atan2(sinf(inputs[4]), cosf(inputs[4]))) / (M_PI);
 	inputs[5] = sig(inputs[5]);
 
 	float outputs[1];
@@ -322,8 +320,8 @@ auto dp_compute = [](Double_Pole_State state, Network& net) -> float {
 
 	inputs[0] = inputs[0] / 2.4f;
 	inputs[1] = sig(inputs[1]);
-	inputs[2] = (std::atan2(std::sinf(inputs[2]), std::cosf(inputs[2]))) / (M_PI);
-	inputs[3] = (std::atan2(std::sinf(inputs[4]), std::cosf(inputs[4]))) / (M_PI);
+	inputs[2] = (atan2(sinf(inputs[2]), cosf(inputs[2]))) / (M_PI);
+	inputs[3] = (atan2(sinf(inputs[4]), cosf(inputs[4]))) / (M_PI);
 
 	float outputs[1];
 
@@ -438,7 +436,7 @@ void dpv_render(Network& net, void* user) noexcept {
 		time += ImGui::GetIO().DeltaTime / 10;
 	}
 
-	time = std::fmodf(time, 1.f);
+	time = fmodf(time, 1.f);
 	time = std::max(time, 0.f);
 
 	state = results[time * (results.size() - 1)];
@@ -466,13 +464,13 @@ void dpv_render(Network& net, void* user) noexcept {
 
 	auto pole1_start = cart_pos;
 	auto pole1_end = pole1_start + ImVec2{
-		std::cosf(state.pole1_θ - M_PI_2) * 0.1f * scale,
-		std::sinf(state.pole1_θ - M_PI_2) * 0.1f * scale
+		cosf(state.pole1_θ - M_PI_2) * 0.1f * scale,
+		sinf(state.pole1_θ - M_PI_2) * 0.1f * scale
 	};
 	auto pole2_start = pole1_end;
 	auto pole2_end = pole2_start + ImVec2{
-		std::cosf(state.pole2_θ - M_PI_2) * 1.f * scale,
-		std::sinf(state.pole2_θ - M_PI_2) * 1.f * scale
+		cosf(state.pole2_θ - M_PI_2) * 1.f * scale,
+		sinf(state.pole2_θ - M_PI_2) * 1.f * scale
 	};
 
 	// draw left end
@@ -590,10 +588,10 @@ float dpv_fitness(Network& net, void*) noexcept {
 		float denom = 0;
 		for (size_t i = 0, j = 0; i < results.size(); ++i) {
 			if (is_upright(results[i]) && j++ > t - N_T / 10) {
-				denom += std::fabsf((float)results[i].cart_x);
-				denom += std::fabsf((float)results[i].cart_v);
-				denom += std::fabsf((float)results[i].pole1_θ);
-				denom += std::fabsf((float)results[i].pole2_θ);
+				denom += fabsf((float)results[i].cart_x);
+				denom += fabsf((float)results[i].cart_v);
+				denom += fabsf((float)results[i].pole1_θ);
+				denom += fabsf((float)results[i].pole2_θ);
 			}
 		}
 
@@ -645,7 +643,7 @@ void dp_render(Network& net, void* user) noexcept {
 		time += ImGui::GetIO().DeltaTime / 10;
 	}
 
-	time = std::fmodf(time, 1.f);
+	time = fmodf(time, 1.f);
 	time = std::max(time, 0.f);
 
 	state = results[time * (results.size() - 1)];
@@ -673,13 +671,13 @@ void dp_render(Network& net, void* user) noexcept {
 
 	auto pole1_start = cart_pos;
 	auto pole1_end = pole1_start + ImVec2{
-		std::cosf(state.pole1_θ - M_PI_2) * 0.1f * scale,
-		std::sinf(state.pole1_θ - M_PI_2) * 0.1f * scale
+		cosf(state.pole1_θ - M_PI_2) * 0.1f * scale,
+		sinf(state.pole1_θ - M_PI_2) * 0.1f * scale
 	};
 	auto pole2_start = pole1_end;
 	auto pole2_end = pole2_start + ImVec2{
-		std::cosf(state.pole2_θ - M_PI_2) * 1.f * scale,
-		std::sinf(state.pole2_θ - M_PI_2) * 1.f * scale
+		cosf(state.pole2_θ - M_PI_2) * 1.f * scale,
+		sinf(state.pole2_θ - M_PI_2) * 1.f * scale
 	};
 
 	// draw left end
@@ -797,10 +795,10 @@ float dp_fitness(Network& net, void*) noexcept {
 		float denom = 0;
 		for (size_t i = 0, j = 0; i < results.size(); ++i) {
 			if (is_upright(results[i]) && j++ > t - N_T / 10) {
-				denom += std::fabsf((float)results[i].cart_x);
-				denom += std::fabsf((float)results[i].cart_v);
-				denom += std::fabsf((float)results[i].pole1_θ);
-				denom += std::fabsf((float)results[i].pole2_θ);
+				denom += fabsf((float)results[i].cart_x);
+				denom += fabsf((float)results[i].cart_v);
+				denom += fabsf((float)results[i].pole1_θ);
+				denom += fabsf((float)results[i].pole2_θ);
 			}
 		}
 

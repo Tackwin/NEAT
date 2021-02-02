@@ -1,4 +1,5 @@
 #include "Neat.hpp"
+#include "string.h"
 #include <assert.h>
 #include <algorithm>
 #include <unordered_map>
