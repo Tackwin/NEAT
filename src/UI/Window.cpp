@@ -4,6 +4,8 @@
 #include "imgui/imnodes.h"
 
 #include <algorithm>
+#include <unordered_map>
+#include <unordered_set>
 #include <stdio.h>
 
 namespace ImGui {
@@ -27,9 +29,6 @@ void Network_Window::embed_render(Network& network) noexcept {
 	links_created.clear();
 	links_deleted.clear();
 	links_hovered.clear();
-
-	size_t n_inputs = 0;
-	size_t n_outputs = 0;
 
 	if (ImGui::Button("Reset")) network = {};
 	ImGui::SameLine();
@@ -55,14 +54,13 @@ void Network_Window::embed_render(Network& network) noexcept {
 
 	}
 
+	layout = ImGui::Button("Layout");
+
 	imnodes::EditorContextSet(ctx.ctx);
 	
 	imnodes::BeginNodeEditor();
 
 	for (size_t i = 0; i < network.nodes.size(); ++i) {
-		if (network.node_kinds[i] == Network::Node_Kind::Sensor) n_inputs++;
-		if (network.node_kinds[i] == Network::Node_Kind::Output) n_outputs++;
-		
 		imnodes::BeginNode(i);
 
 		imnodes::BeginNodeTitleBar();
@@ -95,6 +93,8 @@ void Network_Window::embed_render(Network& network) noexcept {
 		);
 	}
 	hovered = imnodes::IsEditorHovered();
+
+	if (layout) auto_layout(network);
 
 	imnodes::EndNodeEditor();
 
@@ -130,8 +130,8 @@ void Network_Window::embed_render(Network& network) noexcept {
 		thread_local std::vector<float> inputs;
 		thread_local std::vector<float> outputs;
 
-		inputs.resize(n_inputs);
-		outputs.resize(n_outputs);
+		inputs.resize(network.input_nodes);
+		outputs.resize(network.output_nodes);
 
 		ImGui::Columns(2);
 
@@ -155,7 +155,61 @@ void Network_Window::embed_render(Network& network) noexcept {
 	}
 }
 
+
 void Network_Window::auto_layout(Network& network) noexcept {
+	// Honestly i could search for the right layout with a good cost function. Maybe i should...
+
+	struct Vec2f {
+		float x = 0;
+		float y = 0;
+	};
+
+	std::vector<Vec2f> positions;
+	positions.resize(network.nodes.size());
+
+	std::unordered_map<size_t, std::vector<size_t>> connections;
+	for (auto& x : network.connections) connections[x.in].push_back(x.out);
+
+	std::vector<std::pair<size_t, size_t>> open;
+	std::unordered_set<size_t> closed;
+
+	std::vector<size_t> layers;
+	layers.resize(network.nodes.size());
+
+	size_t n_layer = 0;
+
+	for (size_t i = 0; i < network.input_nodes; ++i) open.push_back({i, 0});
+
+	while (!open.empty()) {
+		auto [it, l] = open.back();
+		open.pop_back();
+
+		if (closed.find(it) != std::end(closed)) continue;
+		closed.insert(it);
+
+		n_layer = std::max(n_layer, l);
+		layers[it] = l;
+
+		for (auto& x : connections[it]) open.push_back({x, l+1});
+	}
+
+	std::vector<size_t> n_by_layers;
+	n_by_layers.resize(n_layer + 1);
+	for (auto& x : layers) n_by_layers[x]++;
+
+	std::vector<size_t> max_by_layers = n_by_layers;
+
+	auto max_width = std::max_element(std::begin(n_by_layers), std::end(n_by_layers));
+
+	for (size_t i = 0; i < network.nodes.size(); ++i) {
+		imnodes::SetNodeGridSpacePos(i, {
+			100.f * layers[i],
+			100.f * n_by_layers[layers[i]] / max_by_layers[layers[i]]
+		});
+
+		n_by_layers[layers[i]]--;
+	}
+
 }
 
 

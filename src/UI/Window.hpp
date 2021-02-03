@@ -31,6 +31,7 @@ struct Network_Window {
 
 	bool hovered = false;
 	bool layout = false;
+	bool custom_pos = false;
 
 	void embed_render(Network& network) noexcept;
 	void auto_layout(Network& network) noexcept;

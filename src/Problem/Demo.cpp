@@ -10,6 +10,7 @@
 
 #include <algorithm>
 
+
 float xor_fitness(Network& net, void*) noexcept {
 	float inputs[] = {
 		0, 0, 1,
