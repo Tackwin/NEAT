@@ -89,8 +89,13 @@ struct Genome {
 	size_t serial_number = 0;
 
 	static Genome mate(const Genome& a, const Genome& b) noexcept;
-	static float dist(
-		const Genome& a, const Genome& b, float c1 = 1, float c2 = 1, float c3 = 1
+	static bool dist(
+		const Genome& a,
+		const Genome& b,
+		float c1 = 1,
+		float c2 = 1,
+		float c3 = 1,
+		float tresh = 3
 	) noexcept;
 
 	void add_connection(std::uint32_t in, std::uint32_t out, float w) noexcept;
@@ -129,6 +134,7 @@ struct Neat {
 	float complexity_cost = 0.5f;
 	float population_competition_rate = 1.0f;
 
+	size_t age_cutoff_sterile_specie = 20;
 	size_t min_specie_size_advantage = 100;
 
 	float c_1 = 1.0f;
@@ -141,7 +147,7 @@ struct Neat {
 
 	size_t generation_number = 0;
 	
-	size_t population_size = 1'000;
+	size_t population_size = 10'000;
 	std::vector<Genome> population;
 
 	// >SEE(Tackwin): this doesn't exactly concern Neat where should i put it ??
@@ -160,9 +166,9 @@ struct Neat {
 		Genome repr;
 		size_t size = 0;
 		size_t num = 0;
-		size_t gen_since_upgrade = 0;
 
 		float best_fitness = FLT_MIN;
+		size_t gen_since_improv = 0;
 
 		std::vector<size_t> idx_in_population;
 	};

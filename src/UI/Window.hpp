@@ -88,7 +88,7 @@ struct Neat_Window {
 		DPV,  // Double pole velocity
 		DP,   // Double pole no velocity
 		HDPV  // Double pole velocity
-	} evaluation = Evaluation::DPV;
+	} evaluation = Evaluation::DP;
 
 	std::vector<float> max_fitness;
 	std::vector<float> max_adjusted_fitness;
@@ -102,16 +102,19 @@ struct Neat_Window {
 	};
 	std::vector<std::vector<Specie_Info>> species_infos;
 
-	bool capture_population = true;
+	bool capture_population = false;
 	std::vector<std::vector<Genome>> population_snapshots;
 	std::vector<std::vector<Neat::Result>> results_snapshots;
 
 	bool open_explore_population = false;
+	bool open_species_visu = false;
 
 	void render(Neat& neat) noexcept;
 	void render_best(Neat& neat) noexcept;
 
 	void get_stats(const Neat& neat, const std::vector<Neat::Result>& results) noexcept;
+
+	void visu_species_size() noexcept;
 };
 
 

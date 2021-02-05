@@ -206,6 +206,22 @@ void gui(argh::parser& flags) noexcept {
 	Neat neat;
 	Neat_Window neat_win;
 
+	FILE* f = fopen("init_genome", "rb");
+
+	if (f) {
+		fseek(f, 0, SEEK_END);
+		long fsize = ftell(f);
+		fseek(f, 0, SEEK_SET);  /* same as rewind(f); */
+
+		std::vector<std::uint8_t> data;
+		data.resize(fsize);
+		fread(data.data(), 1, fsize, f);
+		fclose(f);
+
+		neat_win.initial_genome = Genome::deserialize(data);
+	}
+
+
 	ImGui::StyleColorsDark();
 
 	// Setup Platform/Renderer backends
@@ -277,13 +293,12 @@ void gui(argh::parser& flags) noexcept {
 
 		if (neat_win.run_generation || neat_win.auto_run) {
 			neat.complete_with(neat_win.initial_genome, neat.population_size);
-
+			
 			neat.evaluate(f, nullptr);
 			neat.speciate();
 			neat_win.get_stats(neat, neat.results);
 			neat.select();
 			neat.populate();
-
 
 			neat.generation_number++;
 		}

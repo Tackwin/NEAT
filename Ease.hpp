@@ -1212,9 +1212,9 @@ std::string NS::details::get_cli_flag(
 	case NS::Cli_Opts::No_Inline :
 		X("-fno-inline", "/Ob0");
 	case NS::Cli_Opts::Debug_Symbol_Link :
-		X("-g -gcodeview -gno-column-info", "/DEBUG");
+		X("-g -ggdb -gcodeview", "/DEBUG");
 	case NS::Cli_Opts::Debug_Symbol_Compile :
-		X("-g -gcodeview -gno-column-info", "/Z7");
+		X("-g -ggdb -gcodeview", "/Z7");
 
 	case NS::Cli_Opts::Arch :
 		X(std::string("-m32"), "");

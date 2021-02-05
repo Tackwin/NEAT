@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <optional>
 #include <thread>
+#include <stdio.h>
 #include "xstd.hpp"
 
 Genome Genome::mate(const Genome& a, const Genome& b) noexcept {
@@ -227,9 +228,11 @@ void Genome::dis_connection(size_t i) noexcept {
 	connect_genes[i].enabled = false;
 }
 
-float Genome::dist(const Genome& a, const Genome& b, float c1, float c2, float c3) noexcept {
-	if (a.connect_genes.empty() && b.connect_genes.empty()) return 0;
-	if (a.connect_genes.empty() || b.connect_genes.empty()) return FLT_MAX;
+bool Genome::dist(
+	const Genome& a, const Genome& b, float c1, float c2, float c3, float tresh
+) noexcept {
+	if (a.connect_genes.empty() && b.connect_genes.empty()) return false;
+	if (a.connect_genes.empty() || b.connect_genes.empty()) return true;
 
 	if (a.connect_genes.back().innov < b.connect_genes.back().innov)
 		return dist(b, a, c1, c2, c3);
@@ -244,8 +247,10 @@ float Genome::dist(const Genome& a, const Genome& b, float c1, float c2, float c
 	size_t n_w = 0;
 	size_t N = std::max(a.node_genes.size(), b.node_genes.size());
 	if (N <= 20) N = 1;
-	else        N = N - 19;
+	else         N = N - 19;
 
+	c1 /= N;
+	c2 /= N;
 
 	for (; i < a.connect_genes.size() && j < b.connect_genes.size(); ) {
 		auto a_id = a.connect_genes[i].innov;
@@ -259,21 +264,23 @@ float Genome::dist(const Genome& a, const Genome& b, float c1, float c2, float c
 			++j;
 			n_w++;
 		}
-		if (a_id > b_id) {
+		else if (a_id > b_id) {
 			n_dis++;
 			j++;
 		}
-		if (b_id > a_id) {
+		else {
 			n_dis++;
 			i++;
 		}
+
+		if (c1 * n_exc + c2 * n_dis > tresh) return true;
 	}
 
 	n_exc = a.connect_genes.size() - std::min(i, a.connect_genes.size());
 
 	if (n_w > 0) w /= n_w;
 
-	return (c1 * n_exc + c2 * n_dis) / N + c3 * w;
+	return c1 * n_exc + c2 * n_dis + c3 * w > tresh;
 }
 
 void Neat::complete_with(Genome g, size_t to) noexcept {
@@ -388,68 +395,6 @@ void Neat::select() noexcept {
 		population.emplace_back(std::move(sorted_population[i]));
 		results.emplace_back(std::move(sorted_results[i]));
 	}
-
-
-
-	/*
-	indices.clear();
-
-	for (auto& x : species) {
-		std::sort(
-			std::begin(x.idx_in_population),
-			std::end(x.idx_in_population),
-			[&](size_t a, size_t b) {
-				return results[a].adjusted_fitness > results[b].adjusted_fitness;
-			}
-		);
-
-		size_t to_kill = x.idx_in_population.size() * (1 - survival_rate);
-		to_kill *= (1 - population_competition_rate);
-
-		x.idx_in_population.resize(x.idx_in_population.size() - to_kill);
-		x.size = x.idx_in_population.size();
-	}
-
-	for (auto& x : species) {
-		size_t beg = sorted_population.size();
-
-		for (auto& i : x.idx_in_population) {
-			sorted_population.emplace_back(std::move(population[i]));
-			sorted_info.emplace_back(std::move(genome_info[i]));
-			sorted_results.push_back(results[i]);
-		}
-
-		x.idx_in_population.clear();
-		for (size_t i = 0; i < x.size; ++i, ++beg) x.idx_in_population.push_back(beg);
-	}
-
-	for (size_t i = 0; i < sorted_population.size(); ++i) indices.push_back(i);
-
-	std::sort(
-		std::begin(indices),
-		std::end(indices),
-		[&](size_t a, size_t b) {
-			return sorted_results[a].adjusted_fitness > sorted_results[b].adjusted_fitness;
-		}
-	);
-
-	population.clear();
-	genome_info.clear();
-
-	size_t to_kill = sorted_population.size() * (1 - survival_rate);
-	to_kill *= population_competition_rate;
-
-	for (size_t i = 0; i + to_kill < sorted_population.size(); ++i) {
-		population.emplace_back(std::move(sorted_population[indices[i]]));
-		genome_info.emplace_back(std::move(sorted_info[indices[i]]));
-	}
-
-	for (auto& x : species) x.idx_in_population.clear();
-	for (size_t i = 0; i < population.size(); ++i)
-		species[genome_info[i].specie].idx_in_population.push_back(i);
-	for (auto& x : species) x.size = x.idx_in_population.size();
-
-	*/
 }
 
 
@@ -549,12 +494,23 @@ void Neat::populate() noexcept {
 #endif
 
 	for (size_t i = 0; i < to_give_birth; ++i) {
-		auto p1_id = (size_t)(randomd2() * population.size());
-		auto p2_id = (size_t)(randomd2() * (population.size() - 1)); if (p2_id >= p1_id) p2_id++;
+		size_t p1_id = 0;
+		size_t p2_id = 0;
+		
+		size_t max_iter = 10;
+		do {
+			p1_id = (size_t)(randomd2() * population.size());
+			p2_id = (size_t)(randomd2() * (population.size() - 1)); if (p2_id >= p1_id) p2_id++;
+		} while (
+			max_iter-- > 0 && (
+				species[genome_info[p1_id].specie].gen_since_improv > age_cutoff_sterile_specie ||
+				species[genome_info[p2_id].specie].gen_since_improv > age_cutoff_sterile_specie
+			)
+		);
 
 		auto* a = &population[p1_id];
 		auto* b = &population[p2_id];
-		
+
 		if (results[p1_id].adjusted_fitness < results[p2_id].adjusted_fitness) std::swap(a, b);
 
 		add_genome(mutation(Genome::mate(*a, *b)));
@@ -567,23 +523,40 @@ void Neat::populate() noexcept {
 void Neat::speciate() noexcept {
 	for (auto& x : species) x.size = 0;
 
-	std::vector<int> found_specie;
+	thread_local std::vector<int> found_specie;
+	found_specie.clear();
 	found_specie.resize(population.size(), -1);
 
 	// First we allocate species based on past representant
-	for (size_t s_idx = 0; s_idx < species.size(); ++s_idx) {
-		auto& specie = species[s_idx];
 
-		for (size_t i = 0; i < population.size(); ++i) if (found_specie[i] < 0) {
-			float d = Genome::dist(specie.repr, population[i], c_1, c_2, c_3);
-			if (d > specie_dt) continue;
+	for (size_t i = 0; i < population.size(); ++i) if (genome_info[i].age == 1) {
+		auto& it = population[i];
 
-			found_specie[i] = s_idx;
-			species[s_idx].size++;
-			genome_info[i].specie = s_idx;
+		for (size_t j = 0; j < species.size(); ++j) {
+			if (Genome::dist(species[j].repr, it, c_1, c_2, c_3, specie_dt)) continue;
+
+			found_specie[i] = j;
+			species[j].size++;
+			genome_info[i].specie = j;
+
+			break;
 		}
+	} else if (!species.empty()) {
+		found_specie[i] = genome_info[i].specie;
+		species[genome_info[i].specie].size++;
 	}
-
+	//for (size_t s_idx = 0; s_idx < species.size(); ++s_idx) {
+	//	auto& specie = species[s_idx];
+//
+	//	for (size_t i = 0; i < population.size(); ++i) if (found_specie[i] < 0) {
+	//		float d = Genome::dist(specie.repr, population[i], c_1, c_2, c_3);
+	//		if (d > specie_dt) continue;
+//
+	//		found_specie[i] = s_idx;
+	//		species[s_idx].size++;
+	//		genome_info[i].specie = s_idx;
+	//	}
+	//}
 	size_t new_specie_idx = species.size();
 
 	// After that if there is still people who have not been assigned a specie.
@@ -594,8 +567,7 @@ void Neat::speciate() noexcept {
 		for (; j < species.size(); ++j) {
 			auto& specie = species[j];
 
-			auto d = Genome::dist(specie.repr, population[i], c_1, c_2, c_3);
-			if (d > specie_dt) continue;
+			if (Genome::dist(specie.repr, population[i], c_1, c_2, c_3, specie_dt)) continue;
 
 			s_idx = j;
 			break;
@@ -614,6 +586,13 @@ void Neat::speciate() noexcept {
 		found_specie[i] = s_idx;
 		species[s_idx].size++;
 		genome_info[i].specie = s_idx;
+	}
+
+	for (size_t i = 0; i < population.size(); ++i) {
+		if (results[i].adjusted_fitness > species[genome_info[i].specie].best_fitness) {
+			species[genome_info[i].specie].best_fitness = results[i].adjusted_fitness;
+			species[genome_info[i].specie].gen_since_improv = 0;
+		}
 	}
 
 	for (size_t i = 0; i < species.size(); ++i) if (species[i].size == 0) {

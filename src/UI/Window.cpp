@@ -1,7 +1,11 @@
 #include "Window.hpp"
 
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui/imnodes.h"
+
+#include "xstd.hpp"
 
 #include <algorithm>
 #include <unordered_map>
@@ -53,7 +57,7 @@ void Network_Window::embed_render(Network& network) noexcept {
 				}
 
 	}
-
+	ImGui::SameLine();
 	layout = ImGui::Button("Layout");
 
 	imnodes::EditorContextSet(ctx.ctx);
@@ -202,9 +206,11 @@ void Network_Window::auto_layout(Network& network) noexcept {
 	auto max_width = std::max_element(std::begin(n_by_layers), std::end(n_by_layers));
 
 	for (size_t i = 0; i < network.nodes.size(); ++i) {
+		auto l = layers[i];
+
 		imnodes::SetNodeGridSpacePos(i, {
-			100.f * layers[i],
-			100.f * n_by_layers[layers[i]] / max_by_layers[layers[i]]
+			100.f * l,
+			100.f * n_by_layers[l] - 50.f * max_by_layers[l]
 		});
 
 		n_by_layers[layers[i]]--;
@@ -384,6 +390,7 @@ void Neat_Window::render(Neat& neat) noexcept {
 			X(neat.complexity_cost);
 			X(neat.population_competition_rate);
 			X(neat.mutation_rate);
+			ImGui::SliderSize("Sterilize specie", &neat.age_cutoff_sterile_specie, 0, 100);
 			if (ImGui::CollapsingHeader("Mutation")) {
 				ImGui::Indent(indent);
 				X(neat.params.update_connection_rate);
@@ -461,6 +468,8 @@ void Neat_Window::render(Neat& neat) noexcept {
 		FLT_MAX,
 		{500, 200}
 	);
+	ImGui::SameLine();
+	ImGui::Text("%f", max_fitness.empty() ? 0 : max_fitness.back());
 	if (fitness_histograms.size() > 0) {
 		to_plot = fitness_histograms.back().data();
 		if (adjusted) to_plot = adjusted_fitness_histograms.back().data();
@@ -473,20 +482,8 @@ void Neat_Window::render(Neat& neat) noexcept {
 	for (size_t i = 0; i < neat.generation_number; ++i) xs.push_back(i);
 
 	if (!species_infos.empty()) {
-		ImGui::PlotHistogram(
-			"Species",
-			[](void* data, int idx) {
-				Specie_Info* arr = (Specie_Info*)data;
-				return (float)arr[idx].n;
-			},
-			species_infos.back().data(),
-			species_infos.back().size(),
-			0,
-			nullptr,
-			0,
-			FLT_MAX,
-			{500, 200}
-		);
+		open_species_visu |= ImGui::Button("Open species visu");
+		if (open_species_visu) visu_species_size();
 	}
 
 	ImGui::SliderSize("# Sample", &max_fitness_n_samples, 0, 10000);
@@ -657,3 +654,110 @@ void Population_Window::embed_render(
 
 	ImGui::EndChildFrame();
 }
+
+void Neat_Window::visu_species_size() noexcept {
+	ImGui::Begin("Species", &open_species_visu);
+
+	auto draw_list = ImGui::GetWindowDrawList();
+	auto offset = ImGui::GetWindowPos();
+	auto pos = ImGui::GetCursorPos();
+	auto size = ImGui::GetContentRegionAvail();
+	auto center = offset + size / 2;
+
+	size_t cutoff_size = 10;
+
+	if (species_infos.empty()) {
+		ImGui::Text("Try running some generations.");
+		ImGui::End();
+		return;
+	}
+
+	auto& infos = species_infos.back();
+
+	struct Circle {
+		size_t specie_idx = 0;
+		ImVec2 pos        = {};
+		ImColor color     = {};
+		float size        = .0f;
+		float target_size = .0f;
+	};
+	thread_local std::unordered_map<size_t, Circle> last;
+	std::unordered_map<size_t, Circle> circles;
+	auto hash = [] (size_t x) { return (uint32_t)(x * 2654435761); };
+
+	for (size_t i = 0; i < infos.size(); ++i) if (infos[i].n > cutoff_size) {
+		auto& x = infos[i];
+		Circle c;
+		c.pos = { (float)(randomd() * 200 - 100), (float)(randomd() * 200 - 100)};
+		if (last.find(x.id) != std::end(last)) c.pos = last[x.id].pos;
+		if (last.find(x.id) != std::end(last)) c.size = last[x.id].size;
+		c.color = hash(x.id);
+		c.color.Value.w = 255;
+		c.target_size = sqrtf((float)x.n);
+		c.specie_idx = i;
+		circles[x.id] = c;
+	}
+
+	float center_pression = 100;
+	float outward_pression = 300;
+	float growth_size = 1.f;
+	auto dt = ImGui::GetIO().DeltaTime;
+	dt = dt > 0.01f ? 0.01f : dt;
+
+	for (auto& [_, x] : circles) {
+		x.size += growth_size * dt * (x.target_size - x.size);
+	}
+
+	// we cetner every one.
+	for (auto& [_, x] : circles) {
+		float d = x.pos.x * x.pos.x + x.pos.y * x.pos.y;
+		d = sqrtf((float)d) + 0.01f;
+
+		auto pull = (d > center_pression) ? center_pression : d;
+
+		x.pos.x -= dt * pull * x.pos.x / d;
+		x.pos.y -= dt * pull * x.pos.y / d;
+	}
+
+	for (auto& [a_id, a] : circles) {
+		for (auto& [b_id, b] : circles) if (a_id < b_id) {
+			float d = (float)(
+				(a.pos.x - b.pos.x) * (a.pos.x - b.pos.x) +
+				(a.pos.y - b.pos.y) * (a.pos.y - b.pos.y)
+			);
+			d = sqrtf((float)d) + 0.01f;
+
+			auto denom = d / (a.size + b.size);
+			denom *= denom;
+			denom *= denom;
+			auto f = outward_pression / (1 + denom);
+
+			a.pos.x += dt * f * (a.pos.x - b.pos.x) / (d + a.size);
+			a.pos.y += dt * f * (a.pos.y - b.pos.y) / (d + a.size);
+			b.pos.x += dt * f * (b.pos.x - a.pos.x) / (d + b.size);
+			b.pos.y += dt * f * (b.pos.y - a.pos.y) / (d + b.size);
+		}
+	}
+	last = circles;
+
+	for (auto& [_, x] : circles) {
+		draw_list->AddCircleFilled(center + x.pos, x.size, x.color);
+	}
+
+	auto mouse_pos = ImGui::GetMousePos();
+	for (auto& [id, x] : circles) {
+		auto d = mouse_pos - (center + x.pos);
+		auto dist = sqrtf((float)(d.x * d.x + d.y * d.y));
+
+		if (dist > x.size) continue;
+
+		ImGui::BeginTooltip();
+		ImGui::Text("Specie #: % 5d", (int)infos[x.specie_idx].id);
+		ImGui::Text("Size    : % 5d", (int)infos[x.specie_idx].n);
+		ImGui::EndTooltip();
+	}
+
+	ImGui::End();
+}
+
+

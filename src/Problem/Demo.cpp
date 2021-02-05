@@ -310,6 +310,13 @@ auto dpv_compute = [](Double_Pole_State state, Network& net) -> float {
 	return outputs[0];
 };
 
+auto is_upright_dp = [](Double_Pole_State x) {
+	return
+		std::abs(x.pole1_θ) < M_PI_4 / 2 &&
+		std::abs(x.pole2_θ) < M_PI_4 / 2;
+	//return std::abs(x.pole1_θ + x.pole2_θ) < M_PI_4;
+};
+
 auto dp_compute = [](Double_Pole_State state, Network& net) -> float {
 	float inputs[] = {
 		(float)state.cart_x,
@@ -326,7 +333,7 @@ auto dp_compute = [](Double_Pole_State state, Network& net) -> float {
 
 	float outputs[1];
 
-	net.compute(inputs, 5, outputs, 1);
+	net.compute_clear(inputs, 5, outputs, 1);
 
 	return outputs[0];
 };
@@ -334,29 +341,17 @@ auto dp_compute = [](Double_Pole_State state, Network& net) -> float {
 auto dp_timestep = [](Double_Pole_State in, double f) -> Double_Pole_State {
 	Double_Pole_State out = in;
 	constexpr double m    = 0.1;     // mass of the pole
-	constexpr double m2   = 0.1;     // mass of the pole2
+	constexpr double m2   = 0.01;     // mass of the pole2
 	constexpr double m_c  = 1.0;     // mass of the cart
 	constexpr double g    = 9.8;     // gravity
-	constexpr double l    = 0.1;     // length of the pole
-	constexpr double l2   = 1.0;     // length of the pole2
+	constexpr double l    = 1.0;     // length of the pole
+	constexpr double l2   = 0.1;     // length of the pole2
 	constexpr double mu_c = 0.1;     // cart firction coeff
-	constexpr double mu_p = 0.05;     // joint firction coeff
+	constexpr double mu_p = 0.001;    // joint firction coeff
 	constexpr double M    = m + m_c; // combined mass of the system
 	constexpr double t_l  = 4.8;     // trach width in meter
 
 	constexpr double dt = 0.01; // timestep in second
-
-
-	if (in.cart_x + 0.01 >= +t_l / 2){
-		f = 0;
-		in.cart_v = std::min(0., in.cart_v);
-		out.cart_x = -t_l / 2;
-	}
-	if (in.cart_x - 0.01 <= -t_l / 2){
-		f = 0;
-		in.cart_v = std::max(0., in.cart_v);
-		out.cart_x = +t_l / 2;
-	}
 
 	// Extract state into named variables.
 	// Precompute some reused values.
@@ -372,12 +367,15 @@ auto dp_timestep = [](Double_Pole_State in, double f) -> Double_Pole_State {
 	double l_hat = l / 2;
 	double l2_hat = l2 / 2;
 
-
 	// Calc cart horizontal acceleration.
 	auto xa = (g * ((m*sin_theta*cos_theta) + (m2*sin_theta2*cos_theta2))
                 - (7./3.) * (f +(m*l_hat*thetav_sqr*sin_theta) + (m2*l2_hat*thetav2_sqr*sin_theta2) - mu_c*in.cart_v)
                 - (((mu_p*in.pole1_v*cos_theta)/l_hat) + ((mu_p*in.pole2_v*cos_theta2)/l2_hat)))
                 / ((m*cos_theta_sqr) + (m2*cos_theta2_sqr) - (7./3.)*M);
+
+	if (in.cart_x <= -t_l / 2 && xa < 0) xa = 0;
+	if (in.cart_x >= +t_l / 2 && xa > 0) xa = 0;
+
 	out.cart_x = in.cart_x + in.cart_v * dt;
 	out.cart_v = in.cart_v + xa * dt;
 
@@ -391,6 +389,8 @@ auto dp_timestep = [](Double_Pole_State in, double f) -> Double_Pole_State {
 	out.pole2_θ = in.pole2_θ + in.pole2_v * dt;
 	out.pole2_v = in.pole2_v + θa2 * dt;
 
+	if (out.cart_x <= -t_l / 2) out.cart_x = -t_l / 2;
+	if (out.cart_x >= +t_l / 2) out.cart_x = +t_l / 2;
 
 	return out;
 };
@@ -410,13 +410,6 @@ void dpv_render(Network& net, void* user) noexcept {
 	state.pole2_θ = 0;
 
 	results.push_back(state);
-	auto is_upright = [](Double_Pole_State x) {
-		//return
-		//	std::abs(x.pole1_θ) < M_PI_4 / 6 &&
-		//	std::abs(x.pole2_θ) < M_PI_4 / 6;
-		return std::abs(x.pole1_θ + x.pole2_θ) < M_PI_4 / 4;
-	};
-
 	size_t N_T = 1000;
 	for (size_t i = 0; i < N_T; i += 2) {
 		auto f = dpv_compute(results.back(), net) * 20 - 10;
@@ -517,7 +510,7 @@ void dpv_render(Network& net, void* user) noexcept {
 	draw_list->AddCircle(
 		{ offset.x + cart_pos.x, offset.y + cart_pos.y },
 		50,
-		is_upright(state) ? IM_COL32(0, 255, 0, 255) : IM_COL32(255, 0, 0, 255)
+		is_upright_dp(state) ? IM_COL32(0, 255, 0, 255) : IM_COL32(255, 0, 0, 255)
 	);
 
 	// Draw force.
@@ -564,12 +557,6 @@ float dpv_fitness(Network& net, void*) noexcept {
 	size_t N_T = 1000;
 
 	results.push_back(state);
-	auto is_upright = [](Double_Pole_State x) {
-		return
-			std::abs(x.pole1_θ) < M_PI_4 / 6 &&
-			std::abs(x.pole2_θ) < M_PI_4 / 6;
-		return std::abs(x.pole1_θ + x.pole2_θ) < M_PI_4 / 6;
-	};
 
 	size_t t = 0;
 	for (; t < N_T; t += 2) {
@@ -577,7 +564,7 @@ float dpv_fitness(Network& net, void*) noexcept {
 		results.push_back(dp_timestep(results.back(), f));
 		results.push_back(dp_timestep(results.back(), 0));
 
-		if (!is_upright(results.back())) break;
+		if (!is_upright_dp(results.back())) break;
 	}
 
 	float f1 = 0.f;
@@ -588,7 +575,7 @@ float dpv_fitness(Network& net, void*) noexcept {
 	if (10 * t > N_T) {
 		float denom = 0;
 		for (size_t i = 0, j = 0; i < results.size(); ++i) {
-			if (is_upright(results[i]) && j++ > t - N_T / 10) {
+			if (is_upright_dp(results[i]) && j++ > t - N_T / 10) {
 				denom += fabsf((float)results[i].cart_x);
 				denom += fabsf((float)results[i].cart_v);
 				denom += fabsf((float)results[i].pole1_θ);
@@ -599,7 +586,7 @@ float dpv_fitness(Network& net, void*) noexcept {
 		f2 = 0.75f / denom;
 	}
 
-	return f1;
+	return f1 * .1f + f2 * .9f;
 }
 
 
@@ -635,17 +622,15 @@ void dp_render(Network& net, void* user) noexcept {
 
 	thread_local float time = 0;
 	thread_local bool run = false;
+	if (run) {
+		time += ImGui::GetIO().DeltaTime / 10;
+	}
 
 	if (ImGui::Button(run ? "Pause" : " Run ")) run = !run;
 	ImGui::SameLine();
 	ImGui::SliderFloat("Time", &time, 0, 1);
 
-	if (run) {
-		time += ImGui::GetIO().DeltaTime / 10;
-	}
-
-	time = fmodf(time, 1.f);
-	time = std::max(time, 0.f);
+	time = std::min(1.f, std::max(time, 0.f));
 
 	state = results[time * (results.size() - 1)];
 	auto action = actions[time * (actions.size() - 1)];
@@ -659,8 +644,6 @@ void dp_render(Network& net, void* user) noexcept {
 
 	auto left_end = ImVec2{ pos.x + size.x / 20, pos.y + 4 * size.y / 5 };
 	auto right_end = ImVec2{ pos.x + 19 * size.x / 20, pos.y + 4 * size.y / 5 };
-
-
 
 	auto scale = (right_end.x - left_end.x) / 4.8f;
 
@@ -724,7 +707,7 @@ void dp_render(Network& net, void* user) noexcept {
 	draw_list->AddCircle(
 		{ offset.x + cart_pos.x, offset.y + cart_pos.y },
 		50,
-		is_upright(state) ? IM_COL32(0, 255, 0, 255) : IM_COL32(255, 0, 0, 255)
+		is_upright_dp(state) ? IM_COL32(0, 255, 0, 255) : IM_COL32(255, 0, 0, 255)
 	);
 
 	// Draw force.
@@ -771,20 +754,13 @@ float dp_fitness(Network& net, void*) noexcept {
 	size_t N_T = 1000;
 
 	results.push_back(state);
-	auto is_upright = [](Double_Pole_State x) {
-		return
-			std::abs(x.pole1_θ) < M_PI_4 / 4 &&
-			std::abs(x.pole2_θ) < M_PI_4 / 4;
-		//return std::abs(x.pole1_θ + x.pole2_θ) < M_PI_4 / 6;
-	};
-
 	size_t t = 0;
 	for (; t < N_T; t += 2) {
 		auto f = dp_compute(results.back(), net) * 20 - 10;
 		results.push_back(dp_timestep(results.back(), f));
 		results.push_back(dp_timestep(results.back(), 0));
 
-		if (!is_upright(results.back())) break;
+		if (!is_upright_dp(results.back())) break;
 	}
 
 	float f1 = 0.f;
@@ -795,7 +771,7 @@ float dp_fitness(Network& net, void*) noexcept {
 	if (10 * t > N_T) {
 		float denom = 0;
 		for (size_t i = 0, j = 0; i < results.size(); ++i) {
-			if (is_upright(results[i]) && j++ > t - N_T / 10) {
+			if (is_upright_dp(results[i]) && j++ > t - N_T / 10) {
 				denom += fabsf((float)results[i].cart_x);
 				denom += fabsf((float)results[i].cart_v);
 				denom += fabsf((float)results[i].pole1_θ);
@@ -806,7 +782,8 @@ float dp_fitness(Network& net, void*) noexcept {
 		f2 = 0.75f / denom;
 	}
 
-	return f1;
+	//return f1;
+	return f1 * 0.1f + f2 * 0.9f;
 }
 
 void hdpv_render(Network& net, void*) noexcept {
