@@ -185,8 +185,8 @@ void Network_Window::auto_layout(Network& network) noexcept {
 	for (size_t i = 0; i < network.input_nodes; ++i) open.push_back({i, 0});
 
 	while (!open.empty()) {
-		auto [it, l] = open.back();
-		open.pop_back();
+		auto [it, l] = open.front();
+		open.erase(std::begin(open));
 
 		if (closed.find(it) != std::end(closed)) continue;
 		closed.insert(it);
@@ -318,7 +318,10 @@ void update_genome(Genome& gen, const Network_Window& network_window_input) noex
 }
 
 void Neat_Window::render(Neat& neat) noexcept {
-	ImGui::Begin("Neat");
+	if (!ImGui::Begin("Neat")) {
+		ImGui::End();
+		return;
+	}
 
 	if (ImGui::Button("Reset NEAT")) {
 		neat = {};
@@ -339,24 +342,26 @@ void Neat_Window::render(Neat& neat) noexcept {
 	}
 
 	if (open_best_network) {
-		ImGui::Begin("Best Network", &open_best_network);
-		auto net = best_genome.phenotype();
+		if (ImGui::Begin("Best Network", &open_best_network)) {
+			auto net = best_genome.phenotype();
 
-		best_genome_window.embed_render(best_genome);
-		ImGui::Separator();
-		best_network_window.embed_render(net);
+			best_genome_window.embed_render(best_genome);
+			ImGui::Separator();
+			best_network_window.embed_render(net);
+		}
 		ImGui::End();
 	}
 
 	if (open_best_phenotype) render_best(neat);
 
 	if (open_edit_initial_network) {
-		ImGui::Begin("Edit Network", &open_edit_initial_network);
-		initial_genome_window.embed_render(initial_genome);
-		ImGui::Separator();
-		initial_network = initial_genome.phenotype();
-		initial_network_window.embed_render(initial_network);
-		update_genome(initial_genome, initial_network_window);
+		if (ImGui::Begin("Edit Network", &open_edit_initial_network)) {
+			initial_genome_window.embed_render(initial_genome);
+			ImGui::Separator();
+			initial_network = initial_genome.phenotype();
+			initial_network_window.embed_render(initial_network);
+			update_genome(initial_genome, initial_network_window);
+		}
 		ImGui::End();
 	}
 	ImGui::SameLine();
@@ -377,7 +382,7 @@ void Neat_Window::render(Neat& neat) noexcept {
 		int x = (int)evaluation;
 		ImGui::ListBox("Eval", &x, eval_items, 5);
 		evaluation = (Evaluation)x;
-		ImGui::SliderSize("Population", &neat.population_size, 0, 10'000);
+		ImGui::SliderSize("Population", &neat.population_size, 0, 100'000);
 
 		float indent = 64.f;
 		ImGui::PushItemWidth(200);
@@ -492,15 +497,14 @@ void Neat_Window::render(Neat& neat) noexcept {
 }
 
 void Neat_Window::render_best(Neat& neat) noexcept {
-	ImGui::Begin("Best Phenotype", &open_best_phenotype);
-
-	if (render_phenotype) {
-		auto n = best_genome.phenotype();
-		render_phenotype(n, nullptr);
-	} else {
-		ImGui::Text("No visualisation is available for this problem. :(");
+	if (ImGui::Begin("Best Phenotype", &open_best_phenotype)) {
+		if (render_phenotype) {
+			auto n = best_genome.phenotype();
+			render_phenotype(n, nullptr);
+		} else {
+			ImGui::Text("No visualisation is available for this problem. :(");
+		}
 	}
-
 	ImGui::End();
 }
 
@@ -568,8 +572,8 @@ void Population_Window::render(
 	const std::vector<std::vector<Genome>>& pop,
 	const std::vector<std::vector<Neat::Result>>& res
 ) noexcept {
-	ImGui::Begin("Population");
-	embed_render(pop, res);
+	if (ImGui::Begin("Population"))
+		embed_render(pop, res);
 	ImGui::End();
 }
 
@@ -656,7 +660,10 @@ void Population_Window::embed_render(
 }
 
 void Neat_Window::visu_species_size() noexcept {
-	ImGui::Begin("Species", &open_species_visu);
+	if (!ImGui::Begin("Species", &open_species_visu)) {
+		ImGui::End();
+		return;
+	}
 
 	auto draw_list = ImGui::GetWindowDrawList();
 	auto offset = ImGui::GetWindowPos();
@@ -698,9 +705,9 @@ void Neat_Window::visu_species_size() noexcept {
 		circles[x.id] = c;
 	}
 
-	float center_pression = 100;
-	float outward_pression = 300;
-	float growth_size = 1.f;
+	float center_pression = 200;
+	float outward_pression = 600;
+	float growth_size = 4.f;
 	auto dt = ImGui::GetIO().DeltaTime;
 	dt = dt > 0.01f ? 0.01f : dt;
 

@@ -3,6 +3,7 @@
 #include <vector>
 #include <atomic>
 #include <functional>
+#include <optional>
 #include <cstdint>
 #include <float.h>
 
@@ -132,7 +133,7 @@ struct Neat {
 	float mutation_rate = 1.0f;
 	float specie_crowd_rate = 1.f;
 	float complexity_cost = 0.5f;
-	float population_competition_rate = 1.0f;
+	float population_competition_rate = 0.0f;
 
 	size_t age_cutoff_sterile_specie = 20;
 	size_t min_specie_size_advantage = 100;
@@ -155,7 +156,7 @@ struct Neat {
 
 	struct Genome_Info {
 		size_t age;
-		size_t specie;
+		std::optional<size_t> specie;
 	};
 	std::vector<Genome_Info> genome_info;
 

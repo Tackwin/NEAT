@@ -586,6 +586,7 @@ float dpv_fitness(Network& net, void*) noexcept {
 		f2 = 0.75f / denom;
 	}
 
+	return f1;
 	return f1 * .1f + f2 * .9f;
 }
 
@@ -782,8 +783,8 @@ float dp_fitness(Network& net, void*) noexcept {
 		f2 = 0.75f / denom;
 	}
 
-	//return f1;
-	return f1 * 0.1f + f2 * 0.9f;
+	return f1 * 0.5f + f2 * 0.5f;
+	return f1;
 }
 
 void hdpv_render(Network& net, void*) noexcept {

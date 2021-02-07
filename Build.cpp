@@ -10,8 +10,10 @@ Build build(Flags flags) noexcept {
 
 	b.add_define("_CRT_SECURE_NO_WARNINGS");
 	b.add_define("IMGUI_DISABLE_INCLUDE_IMCONFIG_H");
-	if (!flags.release || (flags.release_level && flags.release_level <= 1))
+	if (!flags.release || (flags.release_level && flags.release_level <= 1)) {
 		b.add_define("_CONTAINER_DEBUG_LEVEL=1");
+		b.add_define("_GLIBCXX_DEBUG");
+	}
 
 	b.add_header("src/");
 	b.add_header("src/imgui");
