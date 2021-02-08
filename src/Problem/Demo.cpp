@@ -312,9 +312,8 @@ auto dpv_compute = [](Double_Pole_State state, Network& net) -> float {
 
 auto is_upright_dp = [](Double_Pole_State x) {
 	return
-		std::abs(x.pole1_θ) < M_PI_4 / 2 &&
-		std::abs(x.pole2_θ) < M_PI_4 / 2;
-	//return std::abs(x.pole1_θ + x.pole2_θ) < M_PI_4;
+		std::abs(x.pole1_θ) < M_PI_4 &&
+		std::abs(x.pole2_θ) < M_PI_4;
 };
 
 auto dp_compute = [](Double_Pole_State state, Network& net) -> float {
@@ -333,7 +332,7 @@ auto dp_compute = [](Double_Pole_State state, Network& net) -> float {
 
 	float outputs[1];
 
-	net.compute_clear(inputs, 5, outputs, 1);
+	net.compute(inputs, 5, outputs, 1);
 
 	return outputs[0];
 };
@@ -341,13 +340,13 @@ auto dp_compute = [](Double_Pole_State state, Network& net) -> float {
 auto dp_timestep = [](Double_Pole_State in, double f) -> Double_Pole_State {
 	Double_Pole_State out = in;
 	constexpr double m    = 0.1;     // mass of the pole
-	constexpr double m2   = 0.01;     // mass of the pole2
+	constexpr double m2   = 0.01;    // mass of the pole2
 	constexpr double m_c  = 1.0;     // mass of the cart
 	constexpr double g    = 9.8;     // gravity
 	constexpr double l    = 1.0;     // length of the pole
 	constexpr double l2   = 0.1;     // length of the pole2
 	constexpr double mu_c = 0.1;     // cart firction coeff
-	constexpr double mu_p = 0.001;    // joint firction coeff
+	constexpr double mu_p = 0.01;    // joint firction coeff
 	constexpr double M    = m + m_c; // combined mass of the system
 	constexpr double t_l  = 4.8;     // trach width in meter
 
@@ -389,8 +388,14 @@ auto dp_timestep = [](Double_Pole_State in, double f) -> Double_Pole_State {
 	out.pole2_θ = in.pole2_θ + in.pole2_v * dt;
 	out.pole2_v = in.pole2_v + θa2 * dt;
 
-	if (out.cart_x <= -t_l / 2) out.cart_x = -t_l / 2;
-	if (out.cart_x >= +t_l / 2) out.cart_x = +t_l / 2;
+	if (out.cart_x <= -t_l / 2) {
+		out.cart_x = -t_l / 2;
+		out.cart_v = std::max(0.0, out.cart_v);
+	}
+	if (out.cart_x >= +t_l / 2) {
+		out.cart_x = +t_l / 2;
+		out.cart_v = std::min(0.0, out.cart_v);
+	}
 
 	return out;
 };
@@ -656,13 +661,13 @@ void dp_render(Network& net, void* user) noexcept {
 
 	auto pole1_start = cart_pos;
 	auto pole1_end = pole1_start + ImVec2{
-		cosf(state.pole1_θ - M_PI_2) * 0.1f * scale,
-		sinf(state.pole1_θ - M_PI_2) * 0.1f * scale
+		cosf(state.pole1_θ - M_PI_2) * 1.0f * scale,
+		sinf(state.pole1_θ - M_PI_2) * 1.0f * scale
 	};
 	auto pole2_start = pole1_end;
 	auto pole2_end = pole2_start + ImVec2{
-		cosf(state.pole2_θ - M_PI_2) * 1.f * scale,
-		sinf(state.pole2_θ - M_PI_2) * 1.f * scale
+		cosf(state.pole2_θ - M_PI_2) * 0.1f * scale,
+		sinf(state.pole2_θ - M_PI_2) * 0.1f * scale
 	};
 
 	// draw left end
@@ -783,8 +788,7 @@ float dp_fitness(Network& net, void*) noexcept {
 		f2 = 0.75f / denom;
 	}
 
-	return f1 * 0.5f + f2 * 0.5f;
-	return f1;
+	return f1 * 0.1f + f2 * 0.9f;
 }
 
 void hdpv_render(Network& net, void*) noexcept {

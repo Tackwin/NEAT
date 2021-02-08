@@ -121,21 +121,22 @@ struct Neat {
 	struct Mutation_Params {
 		float new_connection_weight_rate = 0.1f;
 		float update_connection_rate     = 0.8f;
-		float toggle_connection_rate    = 0.1f;
+		float toggle_connection_rate     = 0.1f;
 		float add_connection_rate        = 0.3f;
 		float update_node_act_rate       = 0.1f;
-		float add_node_rate              = 0.01f;
+		float add_node_rate              = 0.1f;
 		float del_node_rate              = 0.01f;
 	} params;
 
-	float young_advantage = 0.f;
+	float young_advantage = 0.1f;
+	float aging_specie_penality = 0.1f;
 	float survival_rate = 0.5f;
 	float mutation_rate = 1.0f;
 	float specie_crowd_rate = 1.f;
-	float complexity_cost = 0.5f;
+	float complexity_cost = 0.0f;
 	float population_competition_rate = 0.0f;
 
-	size_t age_cutoff_sterile_specie = 20;
+	size_t age_cutoff_sterile_specie = 1000;
 	size_t min_specie_size_advantage = 100;
 
 	float c_1 = 1.0f;
@@ -156,6 +157,7 @@ struct Neat {
 
 	struct Genome_Info {
 		size_t age;
+		float expected_offsprings;
 		std::optional<size_t> specie;
 	};
 	std::vector<Genome_Info> genome_info;
@@ -170,6 +172,8 @@ struct Neat {
 
 		float best_fitness = FLT_MIN;
 		size_t gen_since_improv = 0;
+
+		float expected_offsprings;
 
 		std::vector<size_t> idx_in_population;
 	};

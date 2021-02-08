@@ -185,8 +185,8 @@ void Network_Window::auto_layout(Network& network) noexcept {
 	for (size_t i = 0; i < network.input_nodes; ++i) open.push_back({i, 0});
 
 	while (!open.empty()) {
-		auto [it, l] = open.front();
-		open.erase(std::begin(open));
+		auto [it, l] = open.back();
+		open.pop_back();
 
 		if (closed.find(it) != std::end(closed)) continue;
 		closed.insert(it);
@@ -318,10 +318,7 @@ void update_genome(Genome& gen, const Network_Window& network_window_input) noex
 }
 
 void Neat_Window::render(Neat& neat) noexcept {
-	if (!ImGui::Begin("Neat")) {
-		ImGui::End();
-		return;
-	}
+	ImGui::Begin("Neat");
 
 	if (ImGui::Button("Reset NEAT")) {
 		neat = {};
@@ -386,16 +383,18 @@ void Neat_Window::render(Neat& neat) noexcept {
 
 		float indent = 64.f;
 		ImGui::PushItemWidth(200);
+		ImGui::Indent(indent);
 		if (ImGui::CollapsingHeader("Rates")) {
 			ImGui::Indent(indent);
 			#define X(x) ImGui::SliderFloat(#x, &x, 0, 1);
 			X(neat.survival_rate);
 			X(neat.young_advantage);
+			X(neat.aging_specie_penality);
 			X(neat.specie_crowd_rate);
 			X(neat.complexity_cost);
 			X(neat.population_competition_rate);
 			X(neat.mutation_rate);
-			ImGui::SliderSize("Sterilize specie", &neat.age_cutoff_sterile_specie, 0, 100);
+			ImGui::SliderSize("Sterilize specie", &neat.age_cutoff_sterile_specie, 0, 1000);
 			if (ImGui::CollapsingHeader("Mutation")) {
 				ImGui::Indent(indent);
 				X(neat.params.update_connection_rate);
@@ -429,6 +428,7 @@ void Neat_Window::render(Neat& neat) noexcept {
 			ImGui::Checkbox("Hard", &neat.specifie_number_of_species);
 			ImGui::Unindent(indent);
 		}
+		ImGui::Unindent(indent);
 	}
 	if (ImGui::CollapsingHeader("Visualisation")) {
 		ImGui::Checkbox("Capture population", &capture_population);
@@ -497,13 +497,12 @@ void Neat_Window::render(Neat& neat) noexcept {
 }
 
 void Neat_Window::render_best(Neat& neat) noexcept {
-	if (ImGui::Begin("Best Phenotype", &open_best_phenotype)) {
-		if (render_phenotype) {
-			auto n = best_genome.phenotype();
-			render_phenotype(n, nullptr);
-		} else {
-			ImGui::Text("No visualisation is available for this problem. :(");
-		}
+	ImGui::Begin("Best Phenotype", &open_best_phenotype);
+	if (render_phenotype) {
+		auto n = best_genome.phenotype();
+		render_phenotype(n, nullptr);
+	} else {
+		ImGui::Text("No visualisation is available for this problem. :(");
 	}
 	ImGui::End();
 }
@@ -671,7 +670,7 @@ void Neat_Window::visu_species_size() noexcept {
 	auto size = ImGui::GetContentRegionAvail();
 	auto center = offset + size / 2;
 
-	size_t cutoff_size = 10;
+	size_t cutoff_size = 1;
 
 	if (species_infos.empty()) {
 		ImGui::Text("Try running some generations.");

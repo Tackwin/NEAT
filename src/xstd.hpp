@@ -16,6 +16,8 @@ namespace xstd {
 	}
 
 };
+#define println(x, ...) printf(x "\n", __VA_ARGS__)
+
 static double randomd() noexcept { return (double)rand() / (1.0 + RAND_MAX); }
 static double randomd2() noexcept { auto d = randomd(); return d * d; }
 

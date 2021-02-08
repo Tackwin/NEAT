@@ -54,7 +54,8 @@ Genome Genome::mate(const Genome& a, const Genome& b) noexcept {
 	// that we want to add.
 
 	// So we start by saying that the input and output map one to one exactly
-	std::unordered_map<size_t, size_t> nodes_new_idx;
+	thread_local std::unordered_map<size_t, size_t> nodes_new_idx;
+	nodes_new_idx.clear();
 	for (size_t i = 0; i < a.input_nodes + a.output_nodes; ++i) nodes_new_idx[i] = i;
 
 	// And then we add new hidden_nodes as they come and construct the map as they come too
@@ -99,12 +100,10 @@ void Network::compute_clear(float* in, size_t in_size, float* out, size_t out_si
 void Network::compute(float* in, size_t in_size, float* out, size_t out_size) noexcept {
 	for (size_t i = 0; i < input_nodes && i < in_size; ++i) nodes[i].y = in[i];
 
-	for (size_t n = 0; n < 10; ++n) {
-		for (auto& c : connections) nodes[c.out].s += nodes[c.in].y * c.w;
-		for (size_t i = input_nodes; i < nodes.size(); ++i)
-			nodes[i].y = activate(nodes[i].f, nodes[i].s);
-		for (auto& n : nodes) n.s = 0;
-	}
+	for (auto& c : connections) nodes[c.out].s += nodes[c.in].y * c.w;
+	for (size_t i = input_nodes; i < nodes.size(); ++i)
+		nodes[i].y = activate(nodes[i].f, nodes[i].s);
+	for (auto& n : nodes) n.s = 0;
 
 	for (size_t i = 0; i < output_nodes && i < out_size; ++i) out[i] = nodes[i + input_nodes].y;
 }
@@ -262,6 +261,8 @@ bool Genome::dist(
 	c1 /= N;
 	c2 /= N;
 
+	size_t max_n_w = std::max(a.connect_genes.size(), b.connect_genes.size());
+
 	for (; i < a.connect_genes.size() && j < b.connect_genes.size(); ) {
 		auto a_id = a.connect_genes[i].innov;
 		auto b_id = b.connect_genes[j].innov;
@@ -283,7 +284,7 @@ bool Genome::dist(
 			i++;
 		}
 
-		if (c1 * n_exc + c2 * n_dis > tresh) return true;
+		if (c1 * n_exc + c2 * n_dis + w / max_n_w > tresh) return true;
 	}
 
 	n_exc = a.connect_genes.size() - std::min(i, a.connect_genes.size());
@@ -472,10 +473,30 @@ void Neat::populate() noexcept {
 	size_t survived = population.size();
 
 	size_t to_give_birth = population_size - population.size();
-	for (size_t s_id = 0; s_id < species.size(); ++s_id) {
-		auto& s = species[s_id];
 
-		size_t specie_to_give_birth = (size_t)std::ceil(to_give_birth / (float)species.size());
+	float sum_fertile_species_expected_offsprings = 0;
+
+	float avg_adjusted_fitness = 0.f;
+	for (auto& x : results) avg_adjusted_fitness += x.adjusted_fitness;
+
+	for (size_t i = 0; i < population.size(); ++i) {
+		genome_info[i].expected_offsprings = results[i].adjusted_fitness / avg_adjusted_fitness;
+	}
+
+	for (auto& x : species) if (x.gen_since_improv <= age_cutoff_sterile_specie) {
+		x.expected_offsprings = 0;
+		for (auto& y : x.idx_in_population)
+			x.expected_offsprings += genome_info[y].expected_offsprings;
+		sum_fertile_species_expected_offsprings += x.expected_offsprings;
+	}
+
+	for (size_t s_id = 0; s_id < species.size(); ++s_id) if (
+		species[s_id].gen_since_improv <= age_cutoff_sterile_specie
+	) {
+		auto& s = species[s_id];
+		size_t specie_to_give_birth = (size_t)std::ceil(
+			to_give_birth * s.expected_offsprings / sum_fertile_species_expected_offsprings
+		);
 		specie_to_give_birth = std::min(specie_to_give_birth, to_give_birth);
 		to_give_birth -= specie_to_give_birth;
 
@@ -500,7 +521,7 @@ void Neat::populate() noexcept {
 
 				add_genome(offspring);
 
-				// We give an offspring the opportunity to be tagged as the same species
+				// We give the offspring the opportunity to be tagged as the same species
 				// as its parents.
 				if (!Genome::dist(s.repr, offspring, c_1, c_2, c_3, specie_dt)) {
 					species[s_id].size++;
@@ -569,10 +590,13 @@ void Neat::speciate() noexcept {
 		genome_info[i].specie = s_idx;
 	}
 
+	for (auto& x : species) x.gen_since_improv++;
+
 	for (size_t i = 0; i < population.size(); ++i) {
-		if (results[i].adjusted_fitness > species[*genome_info[i].specie].best_fitness) {
-			species[*genome_info[i].specie].best_fitness = results[i].adjusted_fitness;
-			species[*genome_info[i].specie].gen_since_improv = 0;
+		auto& s = species[*genome_info[i].specie];
+		if (results[i].fitness > s.best_fitness) {
+			s.best_fitness = results[i].fitness;
+			s.gen_since_improv = 0;
 		}
 	}
 
@@ -602,11 +626,14 @@ void Neat::speciate() noexcept {
 		n_in_specie = std::log2(n_in_specie + min_specie_size_advantage);
 
 		size_t complexity = population[i].node_genes.size() + population[i].connect_genes.size();
+		auto& info = genome_info[i];
 
 		auto f = x;
-		x /= 1 + complexity_cost   * complexity;
-		x /= 1 + specie_crowd_rate * n_in_specie;
-		x /= 1 + young_advantage   * genome_info[i].age;
+		x /= 1 + complexity_cost       * complexity;
+		x /= 1 + specie_crowd_rate     * n_in_specie;
+		x /= 1 + young_advantage       * logf(1.f + info.age);
+		if (info.specie)
+			x /= 1 + aging_specie_penality * logf(1.f + species[*info.specie].gen_since_improv);
 		return x;
 	};
 	for (size_t i = 0; i < population.size(); ++i)
@@ -614,9 +641,6 @@ void Neat::speciate() noexcept {
 }
 
 void Neat::add_genome(Genome g) noexcept {
-	if (g.node_genes.empty()) {
-		printf("é");
-	}
 	population.emplace_back(std::move(g));
 	Genome_Info i;
 	i.age = 0;
@@ -659,6 +683,7 @@ std::vector<std::uint8_t> Genome::serialize() const noexcept {
 	}
 
 	return data;
+
 }
 
 Genome Genome::deserialize(const std::vector<std::uint8_t>& data) noexcept {
