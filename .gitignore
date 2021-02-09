@@ -1,6 +1,12 @@
 .vscode/
 ease_build/
 
+*.exe
+*.pdb
+*.ilk
+
+best_genome
+init_genome
+
 Build
-NEAT.exe
 imgui.ini
