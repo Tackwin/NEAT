@@ -69,6 +69,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 	if (key == GLFW_KEY_F11 && action == GLFW_PRESS) toggle_fullscreen(window);
 }
 
+std::vector<Experiment> initial_experiment() noexcept;
 
 void gui(argh::parser& flags) noexcept;
 void cli(argh::parser& flags) noexcept;
@@ -100,28 +101,7 @@ void cli(argh::parser& flags) noexcept {
 	flags("n", 0) >> n_iter;
 	flags("eval", 0) >> eval;
 
-	Neat_Window::Evaluation evaluation = (Neat_Window::Evaluation)eval;
-	auto fit = xor_fitness;
-	switch (evaluation) {
-	case Neat_Window::Evaluation::XOR :
-		fit = xor_fitness;
-		break;
-	case Neat_Window::Evaluation::SPV :
-		fit = spv_fitness;
-		break;
-	case Neat_Window::Evaluation::DPV :
-		fit = dpv_fitness;
-		break;
-	case Neat_Window::Evaluation::DP :
-		fit = dp_fitness;
-		break;
-	case Neat_Window::Evaluation::HDPV :
-		fit = hdpv_fitness;
-		break;
-	default:
-		fit = xor_fitness;
-		break;
-	}
+	auto experiments_available = initial_experiment();
 
 	FILE* f = fopen(init_genome_path.c_str(), "rb");
 
@@ -148,11 +128,7 @@ void cli(argh::parser& flags) noexcept {
 			);
 		}
 
-		neat.evaluate(fit, nullptr);
-		neat.select();
-		neat.populate();
-		neat.speciate();
-		neat.generation_number++;
+		neat.epoch(experiments_available[eval]);
 
 		auto m = std::max_element(
 			std::begin(neat.results),
@@ -206,6 +182,11 @@ void gui(argh::parser& flags) noexcept {
 	Neat neat;
 	Neat_Window neat_win;
 
+	neat_win.experiments_available = initial_experiment();
+	if (neat_win.experiments_available.front().genome) {
+		neat_win.initial_genome = neat_win.experiments_available.front().genome();
+		neat_win.initial_network = neat_win.initial_genome.phenotype();
+	}
 
 	ImGui::StyleColorsDark();
 
@@ -236,57 +217,12 @@ void gui(argh::parser& flags) noexcept {
 
 		neat_win.render(neat);
 
-		auto f = xor_fitness;
-		switch (neat_win.evaluation) {
-		case Neat_Window::Evaluation::XOR :
-			f = xor_fitness;
-			break;
-		case Neat_Window::Evaluation::SPV :
-			f = spv_fitness;
-			break;
-		case Neat_Window::Evaluation::DPV :
-			f = dpv_fitness;
-			break;
-		case Neat_Window::Evaluation::DP :
-			f = dp_fitness;
-			break;
-		case Neat_Window::Evaluation::HDPV :
-			f = hdpv_fitness;
-			break;
-		default:
-			f = xor_fitness;
-			break;
-		}
-
-		switch (neat_win.evaluation) {
-		case Neat_Window::Evaluation::SPV :
-			neat_win.render_phenotype = spv_render;
-			break;
-		case Neat_Window::Evaluation::DPV :
-			neat_win.render_phenotype = dpv_render;
-			break;
-		case Neat_Window::Evaluation::DP :
-			neat_win.render_phenotype = dp_render;
-			break;
-		case Neat_Window::Evaluation::HDPV :
-			neat_win.render_phenotype = hdpv_render;
-			break;
-		default:
-			neat_win.render_phenotype = nullptr;
-			break;
-		}
-
-		if (neat_win.run_generation || neat_win.auto_run) {
+		if (neat_win.run_generation || neat_win.auto_run && !neat_win.experiments_available.empty())
+		{
 			neat.complete_with(neat_win.initial_genome, neat.population_size);
-			
-			neat.evaluate(f, nullptr);
-			neat.speciate();
+
+			neat.epoch(neat_win.experiments_available[neat_win.current_experiment]);
 			neat_win.get_stats(neat, neat.results);
-			neat.select();
-			neat.populate();
-
-
-			neat.generation_number++;
 		}
 
 		// Rendering
@@ -345,4 +281,14 @@ GLFWmonitor* get_current_monitor(GLFWwindow *window) noexcept {
 	}
 
 	return bestmonitor;
+}
+
+std::vector<Experiment> initial_experiment() noexcept {
+	return {
+		xor_exp,
+		spv_exp,
+		dpv_exp,
+		dp_exp,
+		hdp_exp
+	};
 }

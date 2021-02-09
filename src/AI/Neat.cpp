@@ -7,6 +7,7 @@
 #include <thread>
 #include <stdio.h>
 #include "xstd.hpp"
+#include "Problem/Experiment.hpp"
 
 Genome Genome::mate(const Genome& a, const Genome& b) noexcept {
 	Genome g;
@@ -204,6 +205,18 @@ Network Genome::phenotype() const noexcept {
 	return net;
 }
 
+Genome Genome::fully_connected(size_t n_input, size_t n_output) noexcept {
+	Genome g;
+	for (size_t i = 0; i < n_input ; ++i) g.add_new_input();
+	for (size_t i = 0; i < n_output; ++i) g.add_new_output();
+
+	for (size_t i = 0; i < g.input_nodes; ++i) for (size_t j = 0; j < g.output_nodes; ++j)
+		g.add_connection(i, j + g.input_nodes, 0.f);
+
+	return g;
+}
+
+
 void Genome::add_connection(std::uint32_t in, std::uint32_t out, float w) noexcept {
 	Connect_Gene c;
 	c.in_id = in;
@@ -297,9 +310,15 @@ bool Genome::dist(
 void Neat::complete_with(Genome g, size_t to) noexcept {
 	bool need_to_speciate = to != population.size();
 	for (size_t i = population.size(); i < to; ++i) add_genome(g);
-	if (need_to_speciate) {
-		speciate();
-	}
+	if (need_to_speciate) speciate();
+}
+
+void Neat::epoch(Experiment& experiment) noexcept {
+	evaluate(experiment.fitness, nullptr);
+	speciate();
+	select();
+	populate();
+	generation_number++;
 }
 
 
@@ -308,9 +327,8 @@ void Neat::evaluate(std::function<float(Network&)> fitness) noexcept {
 }
 
 void Neat::evaluate(std::function<float(Network&, void*)> statefull_fitness, void* user) noexcept {
-	results.clear();
-
-	std::vector<std::thread> threads;
+	thread_local std::vector<std::thread> threads;
+	threads.clear();
 
 	results.clear();
 	results.resize(population.size());
@@ -384,20 +402,9 @@ void Neat::select() noexcept {
 		}
 	);
 
-	//size_t cutoff_idx = indices[indices.size() - population_wide_kill - 1];
 	indices.resize(indices.size() - population_wide_kill);
 	for (auto& x : species) x.idx_in_population.clear();
-//
-	//for (auto& specie : species) {
-	//	for (size_t i = specie.idx_in_population.size() - 1; i + 1 > 0; --i)
-	//		if (specie.idx_in_population[i] < cutoff_idx) {
-	//			specie.idx_in_population.erase(std::begin(specie.idx_in_population) + i);
-	//		}
-//
-	//	specie.size = specie.idx_in_population.size();
-	//	if (specie.size > 0) specie.repr = population[specie.idx_in_population.front()];
-	//}
-//
+
 	genome_info.clear();
 	population.clear();
 	results.clear();
@@ -471,17 +478,14 @@ Genome Neat::mutation(const Genome& in) noexcept {
 
 void Neat::populate() noexcept {
 	size_t survived = population.size();
-
 	size_t to_give_birth = population_size - population.size();
 
 	float sum_fertile_species_expected_offsprings = 0;
-
 	float avg_adjusted_fitness = 0.f;
-	for (auto& x : results) avg_adjusted_fitness += x.adjusted_fitness;
 
-	for (size_t i = 0; i < population.size(); ++i) {
+	for (auto& x : results) avg_adjusted_fitness += x.adjusted_fitness;
+	for (size_t i = 0; i < population.size(); ++i)
 		genome_info[i].expected_offsprings = results[i].adjusted_fitness / avg_adjusted_fitness;
-	}
 
 	for (auto& x : species) if (x.gen_since_improv <= age_cutoff_sterile_specie) {
 		x.expected_offsprings = 0;
@@ -539,8 +543,9 @@ void Neat::speciate() noexcept {
 	for (auto& x : species) x.size = 0;
 
 	// First we allocate species based on past representant
-
 	for (size_t i = 0; i < population.size(); ++i) if (!genome_info[i].specie) {
+		// If this dude had no specie allocated (might be just born or idk)
+		// we need to find him a new home
 		auto& it = population[i];
 
 		for (size_t j = 0; j < species.size(); ++j) {
@@ -558,6 +563,7 @@ void Neat::speciate() noexcept {
 	size_t new_specie_idx = species.size();
 
 	// After that if there is still people who have not been assigned a specie.
+	// It's new species time !
 	for (size_t i = 0; i < population.size(); ++i) if (
 		!genome_info[i].specie.has_value()
 	) {
@@ -575,7 +581,7 @@ void Neat::speciate() noexcept {
 			break;
 		}
 
-		// of that's true then we are faced with a brand new specie !
+		// if that's true then we are faced with a brand new specie !
 		if (j == species.size()) {
 			Specie new_specie;
 			new_specie.size = 0;
@@ -600,6 +606,7 @@ void Neat::speciate() noexcept {
 		}
 	}
 
+	// >PERF(Tackwin): Should do some shuffling and one resize.
 	for (size_t i = 0; i < species.size(); ++i) if (species[i].size == 0) {
 		species.erase(std::begin(species) + i);
 		for (auto& x : genome_info) if (*x.specie >= i) (*x.specie)--;
@@ -615,6 +622,7 @@ void Neat::speciate() noexcept {
 
 	if (specifie_number_of_species) {
 		// Here we can adjust specie_dt if the user has set a preferred number of species.
+		// >TODO(Tackwin): we could add a damping parameter here...
 
 		if (preferred_number_of_species > species.size())      specie_dt /= 1.5;
 		else if (preferred_number_of_species < species.size()) specie_dt *= 1.5;

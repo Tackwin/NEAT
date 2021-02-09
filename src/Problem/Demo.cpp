@@ -10,6 +10,7 @@
 
 #include <algorithm>
 
+Genome xor_genome() noexcept { return Genome::fully_connected(3, 1); }
 
 float xor_fitness(Network& net, void*) noexcept {
 	float inputs[] = {
@@ -23,10 +24,21 @@ float xor_fitness(Network& net, void*) noexcept {
 	};
 	float predicted_outputs[4];
 
-	net.compute_clear(inputs + 0, 3, predicted_outputs + 0, 1);
-	net.compute_clear(inputs + 3, 3, predicted_outputs + 1, 1);
-	net.compute_clear(inputs + 6, 3, predicted_outputs + 2, 1);
-	net.compute_clear(inputs + 9, 3, predicted_outputs + 3, 1);
+	for (size_t i = 0; i < 5; ++i)
+		net.compute(inputs + 0, 3, predicted_outputs + 0, 1);
+	net.clear();
+
+	for (size_t i = 0; i < 5; ++i)
+		net.compute(inputs + 3, 3, predicted_outputs + 1, 1);
+	net.clear();
+
+	for (size_t i = 0; i < 5; ++i)
+		net.compute(inputs + 6, 3, predicted_outputs + 2, 1);
+	net.clear();
+
+	for (size_t i = 0; i < 5; ++i)
+		net.compute(inputs + 9, 3, predicted_outputs + 3, 1);
+	net.clear();
 
 	for (auto& x : predicted_outputs) x = std::max(0.f, std::min(1.f, x));
 
@@ -45,6 +57,7 @@ float xor_fitness(Network& net, void*) noexcept {
 // ===========================  SPV
 // ===========================  SPV
 // ===========================  SPV
+Genome spv_genome() noexcept { return Genome::fully_connected(5, 1); }
 
 
 struct Single_Pole_State {
@@ -275,6 +288,7 @@ float spv_fitness(Network& net, void*) noexcept {
 // ===========================  DPV
 // ===========================  DPV
 
+Genome dpv_genome() noexcept { return Genome::fully_connected(7, 1); }
 
 struct Double_Pole_State {
 	double cart_x = 0;
@@ -591,11 +605,11 @@ float dpv_fitness(Network& net, void*) noexcept {
 		f2 = 0.75f / denom;
 	}
 
-	return f1;
 	return f1 * .1f + f2 * .9f;
 }
 
 
+Genome dp_genome() noexcept { return Genome::fully_connected(5, 1); }
 void dp_render(Network& net, void* user) noexcept {
 	thread_local std::vector<Double_Pole_State> results;
 	thread_local std::vector<double> actions;
@@ -628,15 +642,14 @@ void dp_render(Network& net, void* user) noexcept {
 
 	thread_local float time = 0;
 	thread_local bool run = false;
-	if (run) {
-		time += ImGui::GetIO().DeltaTime / 10;
-	}
+	if (run) time += ImGui::GetIO().DeltaTime / 10;
 
 	if (ImGui::Button(run ? "Pause" : " Run ")) run = !run;
 	ImGui::SameLine();
 	ImGui::SliderFloat("Time", &time, 0, 1);
 
-	time = std::min(1.f, std::max(time, 0.f));
+	time = std::max(time, 0.f);
+	if (time > 1.f) time = std::fmodf(time, 1.f);
 
 	state = results[time * (results.size() - 1)];
 	auto action = actions[time * (actions.size() - 1)];
@@ -791,6 +804,7 @@ float dp_fitness(Network& net, void*) noexcept {
 	return f1 * 0.1f + f2 * 0.9f;
 }
 
+Genome hdpv_genome() noexcept { return Genome::fully_connected(4, 1); }
 void hdpv_render(Network& net, void*) noexcept {
 	// compute CPPN.
 	Substrate input;

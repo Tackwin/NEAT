@@ -6,6 +6,7 @@
 #include "imgui/imnodes.h"
 
 #include "xstd.hpp"
+#include "Problem/Experiment.hpp"
 
 #include <algorithm>
 #include <unordered_map>
@@ -369,16 +370,18 @@ void Neat_Window::render(Neat& neat) noexcept {
 	ImGui::Separator();
 
 	if (ImGui::CollapsingHeader("Parameters")) {
-		const char* eval_items[] = {
-			"XOR",
-			"Single Pole Velocity",
-			"Double Pole Velocity",
-			"Double Pole",
-			"Hyper"
-		};
-		int x = (int)evaluation;
-		ImGui::ListBox("Eval", &x, eval_items, 5);
-		evaluation = (Evaluation)x;
+		thread_local std::vector<const char*> experiments_labels;
+		experiments_labels.clear();
+		for (auto& x : experiments_available) experiments_labels.push_back(x.name.c_str());
+		int x = (int)current_experiment;
+		if (ImGui::ListBox("Eval", &x, experiments_labels.data(), experiments_labels.size())) {
+			auto& e = experiments_available[x];
+			if (e.genome) {
+				initial_genome = e.genome();
+				initial_network = initial_genome.phenotype();
+			}
+		}
+		current_experiment = x;
 		ImGui::SliderSize("Population", &neat.population_size, 0, 100'000);
 
 		float indent = 64.f;
@@ -498,9 +501,9 @@ void Neat_Window::render(Neat& neat) noexcept {
 
 void Neat_Window::render_best(Neat& neat) noexcept {
 	ImGui::Begin("Best Phenotype", &open_best_phenotype);
-	if (render_phenotype) {
+	if (experiments_available[current_experiment].render) {
 		auto n = best_genome.phenotype();
-		render_phenotype(n, nullptr);
+		experiments_available[current_experiment].render(n, nullptr);
 	} else {
 		ImGui::Text("No visualisation is available for this problem. :(");
 	}

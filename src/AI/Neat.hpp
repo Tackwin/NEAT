@@ -98,6 +98,7 @@ struct Genome {
 		float c3 = 1,
 		float tresh = 3
 	) noexcept;
+	static Genome fully_connected(size_t n_input, size_t n_output) noexcept;
 
 	void add_connection(std::uint32_t in, std::uint32_t out, float w) noexcept;
 	void add_connection(const Connect_Gene& other) noexcept;
@@ -117,6 +118,8 @@ struct Genome {
 	static Genome deserialize(const std::vector<std::uint8_t>& data) noexcept;
 };
 
+struct Experiment;
+
 struct Neat {
 	struct Mutation_Params {
 		float new_connection_weight_rate = 0.1f;
@@ -128,12 +131,12 @@ struct Neat {
 		float del_node_rate              = 0.01f;
 	} params;
 
-	float young_advantage = 0.1f;
-	float aging_specie_penality = 0.1f;
-	float survival_rate = 0.5f;
-	float mutation_rate = 1.0f;
-	float specie_crowd_rate = 1.f;
-	float complexity_cost = 0.0f;
+	float young_advantage             = 0.3f;
+	float aging_specie_penality       = 0.0f;
+	float survival_rate               = 0.5f;
+	float mutation_rate               = 1.0f;
+	float specie_crowd_rate           = 1.0f;
+	float complexity_cost             = 0.0f;
 	float population_competition_rate = 0.0f;
 
 	size_t age_cutoff_sterile_specie = 1000;
@@ -170,7 +173,7 @@ struct Neat {
 		size_t size = 0;
 		size_t num = 0;
 
-		float best_fitness = FLT_MIN;
+		float best_fitness = -FLT_MAX;
 		size_t gen_since_improv = 0;
 
 		float expected_offsprings;
@@ -191,6 +194,8 @@ struct Neat {
 
 	void add_genome(Genome g) noexcept;
 
+	void epoch(Experiment& experiment) noexcept;
+
 	void evaluate(std::function<float(Network&)> fitness) noexcept;
 	void evaluate(std::function<float(Network&, void*)> statefull_fitness, void* user) noexcept;
 	void speciate() noexcept;
@@ -204,3 +209,5 @@ struct Neat {
 		std::function<float(Network&)> fitness, size_t game_size
 	) noexcept;
 };
+
+

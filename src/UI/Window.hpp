@@ -80,15 +80,8 @@ struct Neat_Window {
 	Genome_Window best_genome_window;
 	Genome best_genome;
 
-	void (*render_phenotype)(Network&, void*);
-
-	enum Evaluation {
-		XOR,
-		SPV,  // Single pole velocity
-		DPV,  // Double pole velocity
-		DP,   // Double pole no velocity
-		HDPV  // Double pole velocity
-	} evaluation = Evaluation::DP;
+	size_t current_experiment = 0;
+	std::vector<Experiment> experiments_available;
 
 	std::vector<float> max_fitness;
 	std::vector<float> max_adjusted_fitness;
